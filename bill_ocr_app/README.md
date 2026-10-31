@@ -1,94 +1,107 @@
-# Raaseed OCR (رسید او سی آر) - Flutter Mobile Application
+<div align="center">
 
-A standalone Flutter mobile application focused purely on Bill & Document OCR scanning, edge cropping, structured data extraction, and Excel (`.xlsx`) export for Pakistani retail and wholesale grain markets (Ghalla Mandi).
+# 🌾 Raaseed OCR (رسید او سی آر)
+### *Mobile Client • Offline Urdu & English Document Scanner & Excel Exporter*
+
+[![Flutter](https://img.shields.io/badge/Flutter-3.47.6-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
+[![Dart](https://img.shields.io/badge/Dart-3.13.5-0175C2?style=for-the-badge&logo=dart&logoColor=white)](https://dart.dev)
+[![Riverpod](https://img.shields.io/badge/Riverpod-3.4.3-2563EB?style=for-the-badge)](https://riverpod.dev)
+[![Excel](https://img.shields.io/badge/Excel-Native_.xlsx-107C41?style=for-the-badge&logo=microsoftexcel&logoColor=white)](https://pub.dev/packages/excel)
+[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Windows-brightgreen?style=for-the-badge)](https://flutter.dev)
+
+<p align="center">
+  <b>Bespoke Obsidian Glassmorphism UI</b> • <b>Isolate Preprocessing</b> • <b>Bilingual RTL/LTR Stream</b> • <b>Scan Vault Archive</b>
+</p>
 
 ---
 
-## Architecture Overview
+</div>
+
+## 📱 Visual App Highlights
+
+- **Bespoke Obsidian Canvas**: Deep slate backgrounds (`#090D16`), vibrant emerald highlights (`#10B981`), and warm Mandi gold (`#F59E0B`).
+- **Tactile Micro-Interactions**: Spring-physics camera shutter button with haptic feedback (`AppHaptics.medium()`), animated reticle corner brackets, and glowing dual-gradient laser sweep.
+- **Dual-Mode Review**:
+  - **ٹیبل موڈ (Structured Table)**: Editable item rows with quick weight chips (25, 30, 40, 50 kg), +/- steppers, and Pakistani Mandi math solver ($Total = round(Weight \times Rate / 40)$).
+  - **متن کا بہاؤ (Bilingual Stream)**: Unicode-aware text cards distinguishing Urdu Nastaliq (RTL) from English Latin (LTR) with one-tap clipboard copy.
+- **Scan Vault (محفوظ شدہ رسیدیں)**: Non-blocking asynchronous local document archive with live metrics (Total Invoices, Maunds, PKR) and instant full-text search.
+- **Direct Excel Export & Share**: Generates styled `.xlsx` spreadsheets locally and opens them immediately in Excel or shares via WhatsApp.
+
+---
+
+## 🏗️ Directory Structure
 
 ```
 bill_ocr_app/
 ├── lib/
 │   ├── core/
 │   │   ├── constants/
-│   │   │   └── app_constants.dart          # API endpoints, colors, Urdu status messages
+│   │   │   └── app_constants.dart          # API URLs, color tokens, status stages
 │   │   ├── theme/
-│   │   │   └── app_theme.dart              # Emerald & Teal theme, Typography (Noto Nastaliq Urdu & Inter)
+│   │   │   └── app_theme.dart              # Obsidian theme, haptic helpers & typography
 │   │   └── utils/
-│   │       └── formatters.dart             # Currency (Rs. / PKR) & Weight (kg/Maund) formatters
+│   │       ├── responsive.dart             # ResponsiveLayout, dynamic clamps & containers
+│   │       ├── text_direction_helper.dart  # Unicode block classifier (Urdu RTL vs Latin LTR)
+│   │       └── formatters.dart             # Rs./PKR currency & kg/Maund weight formatters
 │   ├── models/
-│   │   ├── ocr_bill_item.dart              # Immutable line item model with Mandi math recalculations
-│   │   └── ocr_scan_result.dart            # Complete bill result with headers, totals, and fallbacks
+│   │   ├── ocr_bill_item.dart              # Immutable line item model with Mandi price recalculator
+│   │   ├── ocr_scan_result.dart            # Complete bill schema (bill#, customer, date, line items, totals)
+│   │   └── scan_history_entry.dart         # Local vault archive schema
 │   ├── services/
+│   │   ├── image_processor_service.dart    # Isolate-based normalization, contrast & thumbnails
 │   │   ├── ocr_pipeline_service.dart       # HTTP client connecting to offline Python OCR backend
+│   │   ├── scan_history_service.dart       # Asynchronous local vault storage (save, search, delete)
 │   │   └── excel_export_service.dart       # Styled Excel (.xlsx) generator, OpenFilex & SharePlus
 │   ├── controllers/
-│   │   ├── ocr_scan_state.dart             # State machine (initial, scanning, success, editing, error)
-│   │   └── ocr_scan_controller.dart        # Riverpod 3.x Notifier handling camera, crop, and updates
+│   │   ├── ocr_scan_state.dart             # Riverpod state machine (Initial, Cropping, Processing, Ready, Error)
+│   │   ├── ocr_scan_controller.dart        # Riverpod 3.x Notifier orchestrating camera, cropping, and edits
+│   │   └── history_controller.dart         # Riverpod Notifier for instant search and status filtering
 │   ├── views/
 │   │   ├── splash/
-│   │   │   └── animated_splash_screen.dart # 60fps entrance pulse & permission checks
+│   │   │   └── animated_splash_screen.dart # 60fps logo pulse & background permission check
 │   │   ├── scanner/
-│   │   │   ├── ocr_scanner_screen.dart     # Document ingestion dashboard (Camera / Gallery picker)
-│   │   │   └── scanning_animation_overlay.dart # Glowing laser beam scan loop & dynamic status chips
-│   │   └── result/
-│   │       └── ocr_result_table_screen.dart # Editable data table, inline dialogs, Excel/Share bar
+│   │   │   ├── ocr_scanner_screen.dart     # Responsive intake dashboard (Camera / Gallery / Demo)
+│   │   │   ├── scanning_animation_overlay.dart # Laser beam scan loop + dynamic progress status chips
+│   │   │   └── components/
+│   │   │       ├── viewfinder_reticle.dart # Custom-painted corner brackets & pulsing laser beam
+│   │   │       └── camera_shutter_button.dart # Tactile spring shutter with haptic feedback
+│   │   ├── result/
+│   │   │   ├── ocr_result_table_screen.dart# Editable DataTable, Grand Totals, Excel & Share Bar
+│   │   │   └── components/
+│   │   │       └── bilingual_text_card.dart# RTL/LTR auto-detected card with copy action
+│   │   └── history/
+│   │       └── scan_history_screen.dart    # Scan Vault metrics overview & search/filter archive
 │   └── main.dart                           # Riverpod ProviderScope root & portrait orientation setup
 └── test/
-    ├── unit_test.dart                      # Model recalculation & Excel generation tests
-    └── widget_test.dart                    # App launch & splash-to-scanner smoke test
+    ├── unit_test.dart                      # Mandi math, script classifier & storage filtering tests
+    └── widget_test.dart                    # App launch & splash-to-scanner navigation smoke tests
 ```
 
 ---
 
-## Key Features
+## ⚡ How to Run
 
-1. **Animated Splash Screen (`animated_splash_screen.dart`)**:
-   - Subtle pulse and fade animation (using Flutter `AnimationController` and `CurvedAnimation`).
-   - Checks camera and gallery permissions in the background and navigates to the scanner dashboard.
-
-2. **Document Ingestion (`ocr_scanner_screen.dart`)**:
-   - Modern cards for **[📸 Take Photo / کیمرہ]** and **[📁 Upload Slip / گیلری]**.
-   - Interactive crop configuration using `image_cropper` (`CropAspectRatioPreset.ratio4x3`, `CropAspectRatioPreset.ratio16x9`, freeform).
-
-3. **Laser Beam Scan Animation (`scanning_animation_overlay.dart`)**:
-   - Zero-wait perception during OCR inference.
-   - Dual-gradient glowing scanning beam traveling over the bill preview.
-   - Dynamic Urdu/English status chips cycling every 1.5 seconds.
-
-4. **Editable Data Table (`ocr_result_table_screen.dart`)**:
-   - Displays Item Name / نام, Quantity / تعداد, Rate / قیمت, and Total / کل رقم.
-   - Tap any cell to quickly correct weights, rates, or Urdu commodity names.
-   - Automatic Mandi recalculation:
-     $$\text{Total Price} = \text{round}\left(\frac{\text{Weight (kg)} \times \text{Rate (Rs./40kg)}}{40.0}\right)$$
-   - Zero layout pixel overflows (`SingleChildScrollView` with `viewInsets` padding when the keyboard appears).
-
-5. **Local Excel (.xlsx) Generation & Sharing (`excel_export_service.dart`)**:
-   - Generates formatted `.xlsx` spreadsheets with emerald headers, double-line summary borders, and auto-adjusted column widths.
-   - Direct opening via `open_filex` and one-tap sharing via `share_plus`.
-
----
-
-## How to Run
-
-### Step 1: Start the Offline OCR Backend Server
-From the root project directory:
-```bash
+### 1. Ensure the Local Python OCR Server is Active
+From the root repository:
+```powershell
 # In d:\OCR project
-.\.venv\Scripts\python.exe api_server.py
+& ".\.venv\Scripts\python.exe" "api_server.py"
 ```
-*The server will start listening on `http://127.0.0.1:5000` (or `http://10.0.2.2:5000` for Android Emulator).*
 
-### Step 2: Run the Flutter App
-From the `bill_ocr_app` directory:
-```bash
+### 2. Forward Ports for Physical Mobile Testing
+```powershell
+& "C:\Android\sdk\platform-tools\adb.exe" reverse tcp:5000 tcp:5000
+```
+
+### 3. Launch the Flutter App
+```powershell
 cd "d:\OCR project\bill_ocr_app"
 flutter pub get
 flutter run
 ```
 
-### Step 3: Run the Test Suite
-```bash
+### 4. Run the Automated Tests
+```powershell
 flutter test
 ```
-All unit and widget tests will execute and verify model math, Excel generation, and navigation.
+*All 6 unit and widget test suites execute and verify model math, Excel generation, Unicode classification, and responsive navigation.*
