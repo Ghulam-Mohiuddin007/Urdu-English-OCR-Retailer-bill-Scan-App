@@ -17,7 +17,7 @@ void main() {
 
     // Fast-forward past splash duration (2600ms) and route transition (700ms)
     await tester.pump(const Duration(milliseconds: 3000));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 800));
 
     // Verify navigation landed on OcrScannerScreen
     expect(find.byType(OcrScannerScreen), findsOneWidget);

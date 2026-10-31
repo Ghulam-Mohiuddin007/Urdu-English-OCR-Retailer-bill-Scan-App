@@ -1,23 +1,28 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
+import '../../controllers/history_controller.dart';
 import '../../controllers/ocr_scan_controller.dart';
 import '../../controllers/ocr_scan_state.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/utils/responsive.dart';
 import '../../models/ocr_bill_item.dart';
 import '../../models/ocr_scan_result.dart';
+import '../../models/scan_history_entry.dart';
 import '../../services/excel_export_service.dart';
+import '../../services/scan_history_service.dart';
+import 'components/bilingual_text_card.dart';
 
 class OcrResultTableScreen extends ConsumerStatefulWidget {
   final OcrScanResult initialResult;
-  final File croppedImage;
+  final File? croppedImage;
 
   const OcrResultTableScreen({
     super.key,
     required this.initialResult,
-    required this.croppedImage,
+    this.croppedImage,
   });
 
   @override
@@ -25,15 +30,31 @@ class OcrResultTableScreen extends ConsumerStatefulWidget {
       _OcrResultTableScreenState();
 }
 
-class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen> {
+class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
   File? _lastExportedExcelFile;
+  bool _isSavingToVault = false;
+  bool _hasSavedToVault = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final scanState = ref.watch(ocrScanControllerProvider);
     final controller = ref.read(ocrScanControllerProvider.notifier);
 
-    // Get current result from state or fallback to widget.initialResult
+    // Current working bill result
     final result = (scanState is OcrScanDataReady)
         ? scanState.result
         : (scanState is OcrScanExportSuccess)
@@ -43,105 +64,103 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen> {
     final isExporting = (scanState is OcrScanDataReady && scanState.isExporting);
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: AppTheme.darkCanvas,
       appBar: AppBar(
         title: Column(
           children: [
             Text(
-              'تصدیق برائے انوینٹری / Bill Verification',
-              style: GoogleFonts.inter(
-                fontSize: 15,
+              'رسید کا جائزہ برائے انوینٹری',
+              style: AppTheme.urduTextStyle(
+                fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.textPrimary,
+                color: AppTheme.textDarkPrimary,
+                height: 1.3,
               ),
             ),
             Text(
               'Bill #${result.billNo} • ${result.date}',
-              style: GoogleFonts.inter(
+              style: AppTheme.englishTextStyle(
                 fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.textSecondary,
+                color: AppTheme.textDarkMuted,
               ),
             ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: AppTheme.textSecondary),
-            tooltip: 'دوبارہ اسکین کریں (Scan Again)',
+            icon: const Icon(Icons.refresh_rounded, color: AppTheme.textDarkSecondary),
+            tooltip: 'دوبارہ اسکین کریں',
             onPressed: () {
+              AppHaptics.selection();
               controller.reset();
               Navigator.of(context).pop();
             },
           ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: AppTheme.accentEmerald,
+          indicatorWeight: 3,
+          labelColor: AppTheme.accentEmerald,
+          unselectedLabelColor: AppTheme.textDarkSecondary,
+          labelStyle: AppTheme.urduTextStyle(fontSize: 13, fontWeight: FontWeight.bold, height: 1.2),
+          tabs: const [
+            Tab(icon: Icon(Icons.table_chart_rounded, size: 18), text: 'ٹیبل موڈ (Structured Table)'),
+            Tab(icon: Icon(Icons.translate_rounded, size: 18), text: 'متن کا بہاؤ (Bilingual Stream)'),
+          ],
+        ),
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            // Scrollable Content
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: ResponsiveContentContainer(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              // 1. Bill Header Summary Card
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: _buildBillHeaderCard(result),
+              ),
+
+              // 2. Tab Content
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
                   children: [
-                    // 1. Bill Metadata & Summary Banner
-                    _buildBillMetadataCard(result),
-                    const SizedBox(height: 16),
+                    // Tab A: Interactive Editable Table
+                    _buildTableTab(result, controller),
 
-                    // 2. Interactive Editable Data Table
-                    _buildDataTableCard(result, controller),
-                    const SizedBox(height: 16),
-
-                    // 3. Quick Tips Banner
-                    _buildQuickTipsCard(),
-                    const SizedBox(height: 24),
+                    // Tab B: Bilingual Stream Cards (Urdu RTL & English LTR)
+                    _buildBilingualStreamTab(result, controller),
                   ],
                 ),
               ),
-            ),
 
-            // Bottom Action Bar
-            _buildBottomActionBar(context, controller, result, isExporting),
-          ],
+              // 3. Bottom Floating Action Dock (Excel / Share / Save)
+              _buildBottomActionDock(result, controller, isExporting),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  /// Bill Header Card showing Customer, Items count, Total Weight & Subtotal
-  Widget _buildBillMetadataCard(OcrScanResult result) {
+  Widget _buildBillHeaderCard(OcrScanResult result) {
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.border, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.glassCardDecoration(
+        backgroundColor: AppTheme.darkSurface,
       ),
       child: Column(
         children: [
-          // Customer & Date Header
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: AppTheme.accentMint,
-                  borderRadius: BorderRadius.circular(12),
+                  color: AppTheme.accentEmerald.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.receipt_long_rounded,
-                  color: AppTheme.primary,
-                  size: 24,
-                ),
+                child: const Icon(Icons.store_rounded, size: 20, color: AppTheme.accentEmerald),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -150,461 +169,337 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen> {
                   children: [
                     Text(
                       result.customer,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: AppTheme.urduTextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.textDarkPrimary,
                         height: 1.3,
                       ),
                     ),
                     Text(
-                      'بل نمبر: ${result.billNo}  •  تاریخ: ${result.date}',
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppTheme.accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: AppTheme.accent.withValues(alpha: 0.3),
-                    width: 1,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.check_circle_rounded,
-                      size: 14,
-                      color: AppTheme.accent,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '100% تصدیق شدہ',
+                      'غلہ منڈی بل نمبر: ${result.billNo}',
                       style: AppTheme.urduTextStyle(
                         fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.accent,
-                        height: 1.4,
+                        color: AppTheme.textDarkMuted,
+                        height: 1.2,
                       ),
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Divider(height: 1, color: AppTheme.border),
-          const SizedBox(height: 14),
-
-          // Metrics Row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildMetricChip(
-                label: 'کل آئٹمز (Items)',
-                value: '${result.items.length}',
-                icon: Icons.inventory_2_outlined,
-              ),
-              Container(width: 1, height: 32, color: AppTheme.border),
-              _buildMetricChip(
-                label: 'کل وزن (Weight)',
-                value: Formatters.formatWeight(result.totalWeight),
-                icon: Icons.scale_outlined,
-              ),
-              Container(width: 1, height: 32, color: AppTheme.border),
-              _buildMetricChip(
-                label: 'کل بل رقم (Subtotal)',
-                value: Formatters.formatCurrency(result.subtotal),
-                icon: Icons.payments_outlined,
-                isHighlight: true,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMetricChip({
-    required String label,
-    required String value,
-    required IconData icon,
-    bool isHighlight = false,
-  }) {
-    return Column(
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 14,
-              color: isHighlight ? AppTheme.primary : AppTheme.textTertiary,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: GoogleFonts.inter(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.textSecondary,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: GoogleFonts.inter(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: isHighlight ? AppTheme.primary : AppTheme.textPrimary,
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Interactive Editable Data Table Card
-  Widget _buildDataTableCard(OcrScanResult result, OcrScanController controller) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.border, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Section Title & Add Item Action
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.table_chart_rounded,
-                      size: 18,
-                      color: AppTheme.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'خریداری کی تفصیل (Purchased Items)',
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-                TextButton.icon(
-                  onPressed: () => controller.addNewItem(),
-                  icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
-                  label: Text(
-                    'نیا آئٹم',
-                    style: AppTheme.urduTextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.primary,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    AppFormatters.formatCurrency(result.subtotal),
+                    style: AppTheme.englishTextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.accentGold,
+                      tabularNumbers: true,
                     ),
                   ),
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    foregroundColor: AppTheme.primary,
+                  Text(
+                    '${result.totalWeight} کلو (${AppFormatters.formatMaunds(result.totalWeight)})',
+                    style: AppTheme.englishTextStyle(
+                      fontSize: 11,
+                      color: AppTheme.textDarkSecondary,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, color: AppTheme.border),
-
-          // Scrollable Horizontal Table to prevent overflows
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 540),
-              child: DataTable(
-                headingRowColor: WidgetStateProperty.all(AppTheme.surfaceVariant),
-                headingTextStyle: GoogleFonts.inter(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textPrimary,
-                ),
-                dataTextStyle: GoogleFonts.inter(
-                  fontSize: 13,
-                  color: AppTheme.textPrimary,
-                ),
-                columnSpacing: 18,
-                horizontalMargin: 16,
-                columns: const [
-                  DataColumn(label: Text('#')),
-                  DataColumn(label: Text('آئٹم نام / Item')),
-                  DataColumn(label: Text('وزن (kg)'), numeric: true),
-                  DataColumn(label: Text('ریٹ (Rate)'), numeric: true),
-                  DataColumn(label: Text('کل رقم (Total)'), numeric: true),
-                  DataColumn(label: Text('تبدیلی / Edit')),
                 ],
-                rows: List.generate(result.items.length, (index) {
-                  final item = result.items[index];
-                  final isEven = index % 2 == 0;
-
-                  return DataRow(
-                    color: WidgetStateProperty.all(
-                      isEven ? Colors.transparent : AppTheme.surfaceVariant.withValues(alpha: 0.35),
-                    ),
-                    cells: [
-                      // S.No
-                      DataCell(
-                        Text(
-                          '${index + 1}',
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.textSecondary,
-                          ),
-                        ),
-                      ),
-                      // Item Name (Urdu)
-                      DataCell(
-                        InkWell(
-                          onTap: () => _showEditDialog(context, controller, index, item),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                item.itemName,
-                                style: AppTheme.urduTextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.textPrimary,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              const Icon(Icons.edit_outlined, size: 12, color: AppTheme.textTertiary),
-                            ],
-                          ),
-                        ),
-                      ),
-                      // Weight
-                      DataCell(
-                        InkWell(
-                          onTap: () => _showEditDialog(context, controller, index, item),
-                          child: Text(
-                            Formatters.formatQuantity(item.weight),
-                            style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ),
-                      // Rate
-                      DataCell(
-                        InkWell(
-                          onTap: () => _showEditDialog(context, controller, index, item),
-                          child: Text(
-                            Formatters.formatCurrency(item.unitPrice),
-                          ),
-                        ),
-                      ),
-                      // Line Total
-                      DataCell(
-                        Text(
-                          Formatters.formatCurrency(item.totalPrice),
-                          style: GoogleFonts.inter(
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.primary,
-                          ),
-                        ),
-                      ),
-                      // Action Delete / Edit
-                      DataCell(
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(
-                                Icons.edit_note_rounded,
-                                size: 18,
-                                color: AppTheme.primary,
-                              ),
-                              onPressed: () => _showEditDialog(context, controller, index, item),
-                              tooltip: 'ترمیم کریں',
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.delete_outline_rounded,
-                                size: 18,
-                                color: AppTheme.error,
-                              ),
-                              onPressed: () => controller.deleteItem(index),
-                              tooltip: 'حذف کریں',
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  );
-                }),
               ),
-            ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  /// Informative Tip Banner
-  Widget _buildQuickTipsCard() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppTheme.accentMint.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.accent.withValues(alpha: 0.3)),
-      ),
-      child: Row(
+  Widget _buildTableTab(OcrScanResult result, OcrScanController controller) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Column(
         children: [
-          const Icon(Icons.info_outline_rounded, size: 18, color: AppTheme.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'حسابی فارمولا: کل رقم = وزن × ریٹ ÷ 40 (من کا حساب)۔ کسی بھی خانے پر کلک کر کے قیمت تبدیل کر سکتے ہیں۔',
-              style: AppTheme.urduTextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.primaryDark,
+          // Items Table Container
+          Container(
+            decoration: AppTheme.glassCardDecoration(
+              backgroundColor: AppTheme.darkSurface,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columnSpacing: 18,
+                  horizontalMargin: 14,
+                  headingRowColor: WidgetStateProperty.all(
+                    AppTheme.darkSurfaceElevated,
+                  ),
+                  headingTextStyle: AppTheme.urduTextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.accentEmerald,
+                    height: 1.2,
+                  ),
+                  columns: const [
+                    DataColumn(label: Text('نام جنس (Item)')),
+                    DataColumn(label: Text('وزن (kg)'), numeric: true),
+                    DataColumn(label: Text('ریٹ / 40 کلو'), numeric: true),
+                    DataColumn(label: Text('کل رقم (Rs)'), numeric: true),
+                    DataColumn(label: Text('')),
+                  ],
+                  rows: List.generate(result.items.length, (index) {
+                    final item = result.items[index];
+                    return DataRow(
+                      cells: [
+                        DataCell(
+                          Text(
+                            item.itemName,
+                            style: AppTheme.urduTextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textDarkPrimary,
+                              height: 1.3,
+                            ),
+                          ),
+                          onTap: () => _openEditItemSheet(context, controller, index, item),
+                        ),
+                        DataCell(
+                          Text(
+                            '${item.weight}',
+                            style: AppTheme.englishTextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              tabularNumbers: true,
+                            ),
+                          ),
+                          onTap: () => _openEditItemSheet(context, controller, index, item),
+                        ),
+                        DataCell(
+                          Text(
+                            item.unitPrice.toStringAsFixed(0),
+                            style: AppTheme.englishTextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              tabularNumbers: true,
+                            ),
+                          ),
+                          onTap: () => _openEditItemSheet(context, controller, index, item),
+                        ),
+                        DataCell(
+                          Text(
+                            AppFormatters.formatCurrency(item.totalPrice),
+                            style: AppTheme.englishTextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.accentGold,
+                              tabularNumbers: true,
+                            ),
+                          ),
+                          onTap: () => _openEditItemSheet(context, controller, index, item),
+                        ),
+                        DataCell(
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined, size: 16, color: AppTheme.accentEmerald),
+                            onPressed: () => _openEditItemSheet(context, controller, index, item),
+                          ),
+                        ),
+                      ],
+                    );
+                  }),
+                ),
               ),
             ),
           ),
+
+          const SizedBox(height: 12),
+
+          // Add New Row Button
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.accentEmerald,
+              side: const BorderSide(color: AppTheme.accentEmerald),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: Text(
+              'نیا آئٹم شامل کریں (Add Row)',
+              style: AppTheme.urduTextStyle(fontSize: 12, fontWeight: FontWeight.bold, height: 1.2),
+            ),
+            onPressed: () {
+              AppHaptics.light();
+              controller.addNewItem();
+            },
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
   }
 
-  /// Bottom Action Bar with Excel Generation and Direct Share
-  Widget _buildBottomActionBar(
-    BuildContext context,
-    OcrScanController controller,
+  Widget _buildBilingualStreamTab(OcrScanResult result, OcrScanController controller) {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      itemCount: result.items.length,
+      itemBuilder: (context, index) {
+        final item = result.items[index];
+        return BilingualTextCard(
+          text: item.itemName,
+          subtitle:
+              'وزن: ${item.weight} kg • ریٹ: Rs. ${item.unitPrice.toStringAsFixed(0)} / 40kg • رقم: Rs. ${item.totalPrice.toStringAsFixed(0)}',
+          confidence: 0.98,
+          isEditable: true,
+          onEdit: () => _openEditItemSheet(context, controller, index, item),
+        );
+      },
+    );
+  }
+
+  Widget _buildBottomActionDock(
     OcrScanResult result,
+    OcrScanController controller,
     bool isExporting,
   ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppTheme.surface,
-        border: const Border(
-          top: BorderSide(color: AppTheme.border, width: 1),
+        color: AppTheme.darkSurface,
+        border: Border(
+          top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -3),
-          ),
-        ],
       ),
       child: Row(
         children: [
-          // Share Button
-          OutlinedButton.icon(
-            onPressed: isExporting
-                ? null
-                : () async {
-                    try {
-                      final file = _lastExportedExcelFile ??
-                          await controller.exportToExcel();
-                      if (file != null) {
-                        _lastExportedExcelFile = file;
-                        await ExcelExportService.shareExcelFile(file);
-                      }
-                    } catch (e) {
-                      if (context.mounted) {
-                        _showSnackBar(context, 'شیئرنگ میں خرابی: $e', isError: true);
-                      }
-                    }
-                  },
-            icon: const Icon(Icons.share_outlined, size: 18),
-            label: const Text('Share'),
-          ),
-          const SizedBox(width: 12),
-
-          // Primary Export to Excel (.xlsx) Button
+          // 1. Export Excel Button
           Expanded(
             child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accentEmerald,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 0,
+              ),
+              icon: isExporting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                    )
+                  : const Icon(Icons.file_download_rounded, size: 20),
+              label: Text(
+                'ایکسل ڈاؤن لوڈ (.xlsx)',
+                style: AppTheme.urduTextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black,
+                  height: 1.2,
+                ),
+              ),
               onPressed: isExporting
                   ? null
                   : () async {
-                      try {
-                        final file = await controller.exportToExcel();
-                        if (file != null && context.mounted) {
-                          _lastExportedExcelFile = file;
-                          _showExportSuccessModal(context, file);
-                        }
-                      } catch (e) {
-                        if (context.mounted) {
-                          _showSnackBar(context, 'ایکسل فائل بنانے میں خرابی: $e', isError: true);
-                        }
+                      AppHaptics.medium();
+                      final file = await controller.exportToExcel();
+                      if (file != null) {
+                        _lastExportedExcelFile = file;
+                        await ExcelExportService.openExcelFile(file);
                       }
                     },
-              icon: isExporting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.table_view_rounded, size: 20),
-              label: Text(
-                isExporting ? 'ایکسل بن رہا ہے...' : 'ایکسل بنائیں (Export .xlsx)',
-                style: AppTheme.urduTextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
             ),
+          ),
+          const SizedBox(width: 8),
+
+          // 2. Share Button
+          IconButton(
+            style: IconButton.styleFrom(
+              backgroundColor: AppTheme.darkSurfaceElevated,
+              padding: const EdgeInsets.all(12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            icon: const Icon(Icons.share_rounded, color: AppTheme.textDarkPrimary, size: 20),
+            tooltip: 'شیئر کریں (Share)',
+            onPressed: () async {
+              AppHaptics.light();
+              final file = _lastExportedExcelFile ?? await controller.exportToExcel();
+              if (file != null) {
+                await controller.shareExcelFile(file);
+              }
+            },
+          ),
+          const SizedBox(width: 8),
+
+          // 3. Save to Vault Action
+          IconButton(
+            style: IconButton.styleFrom(
+              backgroundColor: _hasSavedToVault
+                  ? AppTheme.accentEmerald.withValues(alpha: 0.2)
+                  : AppTheme.darkSurfaceElevated,
+              padding: const EdgeInsets.all(12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            icon: _isSavingToVault
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.accentEmerald),
+                  )
+                : Icon(
+                    _hasSavedToVault ? Icons.check_circle_rounded : Icons.bookmark_add_rounded,
+                    color: _hasSavedToVault ? AppTheme.accentEmerald : AppTheme.textDarkPrimary,
+                    size: 20,
+                  ),
+            tooltip: 'والٹ میں محفوظ کریں (Save to Vault)',
+            onPressed: (_isSavingToVault || _hasSavedToVault)
+                ? null
+                : () async {
+                    setState(() => _isSavingToVault = true);
+                    AppHaptics.medium();
+                    try {
+                      final entry = ScanHistoryEntry.fromScanResult(
+                        result,
+                        fullImagePath: widget.croppedImage?.path,
+                        rawText: result.items.map((i) => i.itemName).join(', '),
+                      );
+                      await ScanHistoryService.saveScan(
+                        entry,
+                        originalFile: widget.croppedImage,
+                      );
+                      ref.read(historyControllerProvider.notifier).loadHistory();
+                      setState(() {
+                        _isSavingToVault = false;
+                        _hasSavedToVault = true;
+                      });
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('رسید کامیابی سے محفوظ ہو گئی (Saved to Vault)'),
+                          duration: Duration(milliseconds: 1500),
+                        ),
+                      );
+                    } catch (e) {
+                      setState(() => _isSavingToVault = false);
+                    }
+                  },
           ),
         ],
       ),
     );
   }
 
-  /// Keyboard-safe Modal Bottom Sheet for Item Editing
-  void _showEditDialog(
+  void _openEditItemSheet(
     BuildContext context,
     OcrScanController controller,
     int index,
     OcrBillItem item,
   ) {
-    final nameController = TextEditingController(text: item.itemName);
-    final weightController = TextEditingController(text: item.weight.toString());
-    final rateController = TextEditingController(text: item.unitPrice.toString());
-    final qtyController = TextEditingController(text: item.quantity.toString());
+    AppHaptics.selection();
+    final nameCtrl = TextEditingController(text: item.itemName);
+    final weightCtrl = TextEditingController(text: '${item.weight}');
+    final rateCtrl = TextEditingController(text: item.unitPrice.toStringAsFixed(0));
 
     showModalBottomSheet(
       context: context,
@@ -613,204 +508,139 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen> {
       builder: (ctx) {
         return Container(
           padding: EdgeInsets.only(
-            top: 20,
             left: 20,
             right: 20,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+            top: 20,
+            bottom: MediaQuery.viewInsetsOf(ctx).bottom + 20,
           ),
           decoration: const BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Handle bar
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppTheme.border,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Title
-                Row(
-                  children: [
-                    const Icon(Icons.edit_note_rounded, color: AppTheme.primary),
-                    const SizedBox(width: 8),
-                    Text(
-                      'آئٹم کی تفصیل میں ترمیم (Edit Item)',
-                      style: GoogleFonts.inter(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Item Name (Urdu & English)
-                TextField(
-                  controller: nameController,
-                  textDirection: TextDirection.rtl,
-                  decoration: const InputDecoration(
-                    labelText: 'آئٹم کا نام (Commodity Name)',
-                    prefixIcon: Icon(Icons.shopping_bag_outlined),
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Weight & Qty Row
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: weightController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(
-                          labelText: 'وزن / Weight (kg)',
-                          suffixText: 'kg',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: qtyController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(
-                          labelText: 'تعداد / Qty',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                // Unit Rate (Per Maund / 40kg)
-                TextField(
-                  controller: rateController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'ریٹ فی من / Unit Rate (PKR)',
-                    prefixText: '₨ ',
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Save Action
-                ElevatedButton(
-                  onPressed: () {
-                    final newName = nameController.text.trim();
-                    final newWeight = double.tryParse(weightController.text) ?? item.weight;
-                    final newRate = double.tryParse(rateController.text) ?? item.unitPrice;
-                    final newQty = double.tryParse(qtyController.text) ?? item.quantity;
-
-                    final updated = item.copyWith(
-                      itemName: newName.isNotEmpty ? newName : item.itemName,
-                      weight: newWeight,
-                      unitPrice: newRate,
-                      quantity: newQty,
-                    );
-
-                    controller.updateItem(index, updated);
-                    Navigator.of(ctx).pop();
-                  },
-                  child: Text(
-                    'تبدیلی محفوظ کریں (Save Changes)',
-                    style: AppTheme.urduTextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  /// Success Modal with options to Open Excel or Share
-  void _showExportSuccessModal(BuildContext context, File excelFile) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          decoration: const BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            color: AppTheme.darkSurface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: const BoxDecoration(
-                  color: AppTheme.accentMint,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.check_circle_rounded,
-                  size: 40,
-                  color: AppTheme.accent,
+              Row(
+                children: [
+                  Text(
+                    'آئٹم میں ترمیم (Edit Line Item)',
+                    style: AppTheme.urduTextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textDarkPrimary,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded, color: AppTheme.errorRed),
+                    onPressed: () {
+                      controller.deleteItem(index);
+                      Navigator.pop(ctx);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Item Name (Urdu / English)
+              TextField(
+                controller: nameCtrl,
+                style: AppTheme.urduTextStyle(fontSize: 15),
+                decoration: InputDecoration(
+                  labelText: 'نام جنس / Item Name',
+                  labelStyle: AppTheme.englishTextStyle(color: AppTheme.textDarkMuted),
+                  filled: true,
+                  fillColor: AppTheme.darkSurfaceElevated,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                 ),
               ),
-              const SizedBox(height: 16),
-              Text(
-                'ایکسل فائل کامیابی سے بن گئی!',
-                style: AppTheme.urduTextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Excel file saved to:\n${excelFile.path.split(Platform.pathSeparator).last}',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.inter(
-                  fontSize: 12,
-                  color: AppTheme.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 12),
+
+              // Weight with quick presets
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        ExcelExportService.shareExcelFile(excelFile);
-                      },
-                      icon: const Icon(Icons.share_rounded),
-                      label: const Text('Share File'),
+                    child: TextField(
+                      controller: weightCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      style: AppTheme.englishTextStyle(fontSize: 15, tabularNumbers: true),
+                      decoration: InputDecoration(
+                        labelText: 'وزن (kg)',
+                        labelStyle: AppTheme.englishTextStyle(color: AppTheme.textDarkMuted),
+                        filled: true,
+                        fillColor: AppTheme.darkSurfaceElevated,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        ExcelExportService.openExcelFile(excelFile);
-                      },
-                      icon: const Icon(Icons.open_in_new_rounded),
-                      label: const Text('Open Sheet'),
+                    child: TextField(
+                      controller: rateCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      style: AppTheme.englishTextStyle(fontSize: 15, tabularNumbers: true),
+                      decoration: InputDecoration(
+                        labelText: 'ریٹ برائے 40 کلو',
+                        labelStyle: AppTheme.englishTextStyle(color: AppTheme.textDarkMuted),
+                        filled: true,
+                        fillColor: AppTheme.darkSurfaceElevated,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
                     ),
                   ),
                 ],
+              ),
+
+              const SizedBox(height: 10),
+
+              // Standard Mandi Bag Weight Presets
+              Wrap(
+                spacing: 8,
+                children: AppConstants.standardWeights.map((w) {
+                  return ActionChip(
+                    label: Text('${w.toInt()} kg'),
+                    labelStyle: AppTheme.englishTextStyle(fontSize: 11, color: Colors.white),
+                    backgroundColor: AppTheme.darkSurfaceElevated,
+                    onPressed: () {
+                      AppHaptics.light();
+                      weightCtrl.text = '$w';
+                    },
+                  );
+                }).toList(),
+              ),
+
+              const SizedBox(height: 18),
+
+              // Save Changes Button
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.accentEmerald,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                onPressed: () {
+                  AppHaptics.medium();
+                  final newWeight = double.tryParse(weightCtrl.text) ?? item.weight;
+                  final newRate = double.tryParse(rateCtrl.text) ?? item.unitPrice;
+                  final updated = item.copyWith(
+                    itemName: nameCtrl.text.trim().isNotEmpty ? nameCtrl.text.trim() : item.itemName,
+                    weight: newWeight,
+                    unitPrice: newRate,
+                  );
+                  controller.updateItem(index, updated);
+                  Navigator.pop(ctx);
+                },
+                child: Text(
+                  'تبدیلی محفوظ کریں (Save & Recalculate)',
+                  style: AppTheme.urduTextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                    height: 1.2,
+                  ),
+                ),
               ),
             ],
           ),
@@ -818,19 +648,4 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen> {
       },
     );
   }
-
-  void _showSnackBar(BuildContext context, String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          message,
-          style: GoogleFonts.inter(fontWeight: FontWeight.w500),
-        ),
-        backgroundColor: isError ? AppTheme.error : AppTheme.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-  }
 }
-

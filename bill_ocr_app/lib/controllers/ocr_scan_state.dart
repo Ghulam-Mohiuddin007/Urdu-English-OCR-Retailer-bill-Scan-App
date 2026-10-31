@@ -35,12 +35,12 @@ class OcrScanProcessing extends OcrScanState {
 
 class OcrScanDataReady extends OcrScanState {
   final OcrScanResult result;
-  final File croppedImage;
+  final File? croppedImage;
   final bool isExporting;
 
   const OcrScanDataReady({
     required this.result,
-    required this.croppedImage,
+    this.croppedImage,
     this.isExporting = false,
   });
 
@@ -60,12 +60,12 @@ class OcrScanDataReady extends OcrScanState {
 class OcrScanExportSuccess extends OcrScanState {
   final OcrScanResult result;
   final File excelFile;
-  final File croppedImage;
+  final File? croppedImage;
 
   const OcrScanExportSuccess({
     required this.result,
     required this.excelFile,
-    required this.croppedImage,
+    this.croppedImage,
   });
 }
 

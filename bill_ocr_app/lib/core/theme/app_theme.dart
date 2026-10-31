@@ -1,161 +1,177 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+class AppHaptics {
+  static void light() => HapticFeedback.lightImpact();
+  static void selection() => HapticFeedback.selectionClick();
+  static void medium() => HapticFeedback.mediumImpact();
+  static void heavy() => HapticFeedback.heavyImpact();
+}
+
 class AppTheme {
-  // Brand Palette: Deep Emerald, Mint Accent, Slate Neutral
-  static const Color primary = Color(0xFF0F766E); // Teal 700
-  static const Color primaryDark = Color(0xFF115E59); // Teal 800
-  static const Color primaryLight = Color(0xFF14B8A6); // Teal 500
-  static const Color accent = Color(0xFF10B981); // Emerald 500
-  static const Color accentMint = Color(0xFFD1FAE5); // Mint 100
-  static const Color background = Color(0xFFF8FAFC); // Slate 50
-  static const Color surface = Color(0xFFFFFFFF);
-  static const Color surfaceVariant = Color(0xFFF1F5F9); // Slate 100
-  static const Color border = Color(0xFFE2E8F0); // Slate 200
-  static const Color textPrimary = Color(0xFF0F172A); // Slate 900
-  static const Color textSecondary = Color(0xFF475569); // Slate 600
-  static const Color textTertiary = Color(0xFF94A3B8); // Slate 400
-  static const Color laserColor = Color(0xFF10B981); // Scanning glow
-  static const Color success = Color(0xFF16A34A);
-  static const Color error = Color(0xFFDC2626);
-  static const Color warning = Color(0xFFF59E0B);
+  // Bespoke Color Palette: Obsidian, Emerald Cashmere, Mandi Gold
+  static const Color darkCanvas = Color(0xFF090D16);
+  static const Color darkSurface = Color(0xFF131D2E);
+  static const Color darkSurfaceElevated = Color(0xFF1B273D);
+  static const Color darkBorder = Color(0xFF24324D);
 
-  static ThemeData get lightTheme {
-    final baseFont = GoogleFonts.interTextTheme();
+  static const Color primary = Color(0xFF0D9488); // Deep Teal
+  static const Color primaryDark = Color(0xFF0F766E);
+  static const Color primaryLight = Color(0xFF14B8A6);
 
+  static const Color accentEmerald = Color(0xFF10B981); // Emerald
+  static const Color accentGold = Color(0xFFF59E0B); // Mandi Gold
+  static const Color accentCyan = Color(0xFF06B6D4); // Scan Laser Beam
+
+  // Backward-compatible tokens
+  static const Color accent = accentEmerald;
+  static const Color accentMint = Color(0xFFD1FAE5);
+  static const Color background = darkCanvas;
+  static const Color surface = darkSurface;
+  static const Color textPrimary = textDarkPrimary;
+  static const Color textSecondary = textDarkSecondary;
+
+  // Light Theme Neutrals
+  static const Color lightBg = Color(0xFFF8FAFC);
+  static const Color lightSurface = Color(0xFFFFFFFF);
+  static const Color lightSurfaceAlt = Color(0xFFF1F5F9);
+  static const Color lightBorder = Color(0xFFE2E8F0);
+
+  // Text
+  static const Color textDarkPrimary = Color(0xFFF8FAFC);
+  static const Color textDarkSecondary = Color(0xFF94A3B8);
+  static const Color textDarkMuted = Color(0xFF64748B);
+
+  static const Color textLightPrimary = Color(0xFF0F172A);
+  static const Color textLightSecondary = Color(0xFF475569);
+  static const Color textLightMuted = Color(0xFF94A3B8);
+
+  static const Color errorRed = Color(0xFFEF4444);
+  static const Color successGreen = Color(0xFF10B981);
+
+  /// Human-crafted dark theme (default for scanner focus)
+  static ThemeData get darkTheme {
     return ThemeData(
       useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: primary,
-        primary: primary,
-        secondary: accent,
-        surface: surface,
-        surfaceContainerHighest: surfaceVariant,
-        brightness: Brightness.light,
-      ),
-      scaffoldBackgroundColor: background,
-      textTheme: baseFont.copyWith(
-        displayLarge: GoogleFonts.inter(
-          fontSize: 32,
-          fontWeight: FontWeight.bold,
-          color: textPrimary,
-          letterSpacing: -0.5,
-        ),
-        displayMedium: GoogleFonts.inter(
-          fontSize: 26,
-          fontWeight: FontWeight.bold,
-          color: textPrimary,
-          letterSpacing: -0.5,
-        ),
-        titleLarge: GoogleFonts.inter(
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-          color: textPrimary,
-        ),
-        titleMedium: GoogleFonts.inter(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        bodyLarge: GoogleFonts.inter(
-          fontSize: 15,
-          fontWeight: FontWeight.normal,
-          color: textPrimary,
-        ),
-        bodyMedium: GoogleFonts.inter(
-          fontSize: 13,
-          fontWeight: FontWeight.normal,
-          color: textSecondary,
-        ),
-        labelLarge: GoogleFonts.inter(
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.2,
-        ),
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: darkCanvas,
+      colorScheme: const ColorScheme.dark(
+        primary: accentEmerald,
+        secondary: accentGold,
+        surface: darkSurface,
+        surfaceContainerHighest: darkSurfaceElevated,
+        error: errorRed,
       ),
       appBarTheme: const AppBarTheme(
-        backgroundColor: surface,
+        backgroundColor: Colors.transparent,
         elevation: 0,
-        scrolledUnderElevation: 1,
         centerTitle: true,
-        iconTheme: IconThemeData(color: textPrimary),
-        titleTextStyle: TextStyle(
-          color: textPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
+        scrolledUnderElevation: 0,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          systemNavigationBarColor: darkCanvas,
+          systemNavigationBarIconBrightness: Brightness.light,
         ),
-      ),
-      cardTheme: CardThemeData(
-        color: surface,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: border, width: 1),
-        ),
-        margin: EdgeInsets.zero,
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: primary,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          textStyle: GoogleFonts.inter(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: primary,
-          side: const BorderSide(color: primary, width: 1.5),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          textStyle: GoogleFonts.inter(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: surfaceVariant,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: border, width: 1),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: primary, width: 1.8),
-        ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }
 
-  // Urdu typography helper using Noto Nastaliq or Noto Sans Arabic
+  /// Elegant light theme
+  static ThemeData get lightTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: lightBg,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: primary,
+        primary: primary,
+        secondary: accentEmerald,
+        surface: lightSurface,
+        surfaceContainerHighest: lightSurfaceAlt,
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: true,
+        scrolledUnderElevation: 0,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+          systemNavigationBarColor: lightBg,
+          systemNavigationBarIconBrightness: Brightness.dark,
+        ),
+      ),
+    );
+  }
+
+  /// Typography helper for Urdu (Noto Nastaliq Urdu)
   static TextStyle urduTextStyle({
-    double fontSize = 16,
+    double fontSize = 15,
     FontWeight fontWeight = FontWeight.w600,
-    Color color = textPrimary,
-    double height = 1.8,
+    Color? color,
+    double height = 1.9,
+    double letterSpacing = 0.0,
   }) {
     return GoogleFonts.notoNastaliqUrdu(
       fontSize: fontSize,
       fontWeight: fontWeight,
-      color: color,
+      color: color ?? textDarkPrimary,
       height: height,
+      letterSpacing: letterSpacing,
+    );
+  }
+
+  /// Typography helper for English & tabular numerals (Inter with tabular figures)
+  static TextStyle englishTextStyle({
+    double fontSize = 14,
+    FontWeight fontWeight = FontWeight.w500,
+    Color? color,
+    double? height,
+    double letterSpacing = -0.2,
+    bool tabularNumbers = false,
+  }) {
+    return GoogleFonts.inter(
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      color: color ?? textDarkPrimary,
+      height: height,
+      letterSpacing: letterSpacing,
+      fontFeatures: tabularNumbers ? const [FontFeature.tabularFigures()] : null,
+    );
+  }
+
+  /// Handcrafted Glassmorphic Card Decoration
+  static BoxDecoration glassCardDecoration({
+    Color? backgroundColor,
+    Color? borderColor,
+    double borderRadius = 20.0,
+    double borderWidth = 1.0,
+    bool hasGlow = false,
+  }) {
+    return BoxDecoration(
+      color: backgroundColor ?? darkSurface.withValues(alpha: 0.85),
+      borderRadius: BorderRadius.circular(borderRadius),
+      border: Border.all(
+        color: borderColor ?? Colors.white.withValues(alpha: 0.08),
+        width: borderWidth,
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.35),
+          offset: const Offset(0, 10),
+          blurRadius: 24,
+          spreadRadius: -4,
+        ),
+        if (hasGlow)
+          BoxShadow(
+            color: accentEmerald.withValues(alpha: 0.15),
+            offset: const Offset(0, 0),
+            blurRadius: 20,
+            spreadRadius: 2,
+          ),
+      ],
     );
   }
 }
-

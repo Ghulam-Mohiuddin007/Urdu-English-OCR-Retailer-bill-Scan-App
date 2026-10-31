@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../core/constants/app_constants.dart';
 import '../core/theme/app_theme.dart';
 import '../models/ocr_bill_item.dart';
+import '../models/ocr_scan_result.dart';
 import '../services/excel_export_service.dart';
 import '../services/ocr_pipeline_service.dart';
 import 'ocr_scan_state.dart';
@@ -245,9 +246,17 @@ class OcrScanController extends Notifier<OcrScanState> {
     await ExcelExportService.shareExcelFile(excelFile);
   }
 
-  /// 10. Reset workflow
+  /// 10. Process sample bill for instant testing
+  Future<void> processSampleBill(BuildContext context) async {
+    final sampleResult = OcrScanResult.sampleSlip1();
+    state = OcrScanDataReady(result: sampleResult);
+  }
+
+  /// 11. Reset workflow
   void reset() {
     _statusCycleTimer?.cancel();
     state = const OcrScanInitial();
   }
+
+  void resetToInitial() => reset();
 }

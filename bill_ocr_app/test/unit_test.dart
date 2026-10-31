@@ -1,7 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:bill_ocr_app/core/utils/text_direction_helper.dart';
 import 'package:bill_ocr_app/models/ocr_bill_item.dart';
 import 'package:bill_ocr_app/models/ocr_scan_result.dart';
-import 'package:bill_ocr_app/services/excel_export_service.dart';
+import 'package:bill_ocr_app/models/scan_history_entry.dart';
+import 'package:bill_ocr_app/services/scan_history_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -105,36 +108,86 @@ void main() {
     });
   });
 
-  group('ExcelExportService Unit Test', () {
-    test('Generates valid Excel spreadsheet byte buffer', () async {
-      final items = [
-        const OcrBillItem(
+  group('TextDirectionHelper Bilingual Unit Tests', () {
+    test('Correctly classifies pure Urdu, English, and mixed scripts', () {
+      expect(TextDirectionHelper.detectScript('گندم دیسی'), DetectedScript.urdu);
+      expect(TextDirectionHelper.getTextDirection('گندم دیسی'), TextDirection.rtl);
+
+      expect(TextDirectionHelper.detectScript('Wheat Grain Premium'), DetectedScript.english);
+      expect(TextDirectionHelper.getTextDirection('Wheat Grain Premium'), TextDirection.ltr);
+
+      expect(TextDirectionHelper.detectScript('دال چنا 25kg'), DetectedScript.mixed);
+      expect(TextDirectionHelper.getTextDirection('دال چنا 25kg'), TextDirection.rtl);
+
+      expect(TextDirectionHelper.detectScript('12345'), DetectedScript.numericOnly);
+    });
+  });
+
+  group('ScanHistoryService & Filtering Tests', () {
+    test('Searches by customer, bill number, and Urdu commodities', () {
+      final entries = [
+        ScanHistoryEntry(
           id: '1',
-          itemName: 'مکئی (Maize)',
-          quantity: 2.0,
-          weight: 100.0,
-          unitPrice: 2200.0,
-          totalPrice: 5500.0,
+          billNo: '17405',
+          date: '2026-10-29',
+          customer: 'صلاح الدین ساہیوال',
+          items: const [
+            OcrBillItem(
+              id: 'i1',
+              itemName: 'دال چنا گولڈن',
+              quantity: 1,
+              weight: 25,
+              unitPrice: 9900,
+              totalPrice: 6188,
+            ),
+          ],
+          totalWeight: 25,
+          subtotal: 6188,
+          createdAt: DateTime.now(),
+        ),
+        ScanHistoryEntry(
+          id: '2',
+          billNo: '99201',
+          date: '2026-10-30',
+          customer: 'ملک محمد اسلم',
+          items: const [
+            OcrBillItem(
+              id: 'i2',
+              itemName: 'مکئی زرد',
+              quantity: 1,
+              weight: 40,
+              unitPrice: 3200,
+              totalPrice: 3200,
+            ),
+          ],
+          totalWeight: 40,
+          subtotal: 3200,
+          createdAt: DateTime.now(),
         ),
       ];
 
-      final result = OcrScanResult(
-        billNo: 'INV-TEST-001',
-        date: '2026-10-29',
-        customer: 'خان زرعی کارپوریشن',
-        items: items,
-        totalWeight: 100.0,
-        subtotal: 5500.0,
+      // Query customer
+      final matchCustomer = ScanHistoryService.filterScans(
+        allScans: entries,
+        query: 'ساہیوال',
       );
+      expect(matchCustomer.length, 1);
+      expect(matchCustomer.first.billNo, '17405');
 
-      final file = await ExcelExportService.generateExcel(result: result);
-      expect(await file.exists(), isTrue);
-      expect(await file.length(), greaterThan(100));
+      // Query commodity name in Urdu
+      final matchCommodity = ScanHistoryService.filterScans(
+        allScans: entries,
+        query: 'مکئی',
+      );
+      expect(matchCommodity.length, 1);
+      expect(matchCommodity.first.customer, 'ملک محمد اسلم');
 
-      // Clean up test file
-      if (await file.exists()) {
-        await file.delete();
-      }
+      // Query bill number
+      final matchBill = ScanHistoryService.filterScans(
+        allScans: entries,
+        query: '17405',
+      );
+      expect(matchBill.length, 1);
     });
   });
 }

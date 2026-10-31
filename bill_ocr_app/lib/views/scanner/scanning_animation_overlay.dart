@@ -4,18 +4,22 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/app_theme.dart';
 
 class ScanningAnimationOverlay extends StatefulWidget {
-  final File imageFile;
+  final File? imageFile;
+  final File? croppedImage;
   final String statusUrdu;
   final String statusEn;
   final int stageIndex;
 
   const ScanningAnimationOverlay({
     super.key,
-    required this.imageFile,
+    this.imageFile,
+    this.croppedImage,
     required this.statusUrdu,
     required this.statusEn,
     required this.stageIndex,
   });
+
+  File get effectiveImage => croppedImage ?? imageFile!;
 
   @override
   State<ScanningAnimationOverlay> createState() =>
@@ -94,7 +98,7 @@ class _ScanningAnimationOverlayState extends State<ScanningAnimationOverlay>
                   children: [
                     // Cropped Bill Image Preview
                     Image.file(
-                      widget.imageFile,
+                      widget.effectiveImage,
                       fit: BoxFit.contain,
                     ),
 
