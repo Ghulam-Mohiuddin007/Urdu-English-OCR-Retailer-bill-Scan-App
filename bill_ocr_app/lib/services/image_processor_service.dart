@@ -76,9 +76,9 @@ class ImageProcessorService {
     // 2. Correct orientation if image contains EXIF orientation flags
     decoded = img.bakeOrientation(decoded);
 
-    // 3. Resolution Normalization: Clamp maximum dimension to 1600px
-    // This preserves high-frequency text details for Urdu dots while cutting RAM by >80%.
-    const int maxTargetDim = 1600;
+    // 3. Resolution Normalization: Clamp maximum dimension to 1200px
+    // This preserves high-frequency text details for Urdu dots while cutting RAM and processing time by >60%.
+    const int maxTargetDim = 1200;
     img.Image normalized = decoded;
     if (decoded.width > maxTargetDim || decoded.height > maxTargetDim) {
       if (decoded.width >= decoded.height) {
@@ -104,9 +104,9 @@ class ImageProcessorService {
       brightness: 1.02,
     );
 
-    // 5. Generate high-quality compressed JPEG for OCR upload
+    // 5. Generate high-quality compressed JPEG for fast OCR upload
     final normalizedBytes = Uint8List.fromList(
-      img.encodeJpg(normalized, quality: 90),
+      img.encodeJpg(normalized, quality: 85),
     );
     File(normalizedPath).writeAsBytesSync(normalizedBytes);
 

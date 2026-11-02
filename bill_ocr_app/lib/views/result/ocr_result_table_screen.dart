@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../controllers/history_controller.dart';
+import '../../controllers/inventory_controller.dart';
 import '../../controllers/ocr_scan_controller.dart';
 import '../../controllers/ocr_scan_state.dart';
 import '../../core/constants/app_constants.dart';
@@ -13,6 +15,8 @@ import '../../models/ocr_scan_result.dart';
 import '../../models/scan_history_entry.dart';
 import '../../services/excel_export_service.dart';
 import '../../services/scan_history_service.dart';
+import '../../services/supabase_storage_service.dart';
+import '../settings/supabase_settings_dialog.dart';
 import 'components/bilingual_text_card.dart';
 
 class OcrResultTableScreen extends ConsumerStatefulWidget {
@@ -36,6 +40,8 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
   File? _lastExportedExcelFile;
   bool _isSavingToVault = false;
   bool _hasSavedToVault = false;
+  bool _isAddingToInventory = false;
+  bool _isSyncingCloud = false;
 
   @override
   void initState() {
@@ -78,7 +84,7 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
               ),
             ),
             Text(
-              'Bill #${result.billNo} • ${result.date}',
+              'Bill #${result.billNo} • ${result.billerDate}',
               style: AppTheme.englishTextStyle(
                 fontSize: 12,
                 color: AppTheme.textDarkMuted,
@@ -87,6 +93,17 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.cloud_sync_rounded, color: AppTheme.accentEmerald),
+            tooltip: 'Supabase کلاؤڈ سیٹنگز',
+            onPressed: () {
+              AppHaptics.light();
+              showDialog(
+                context: context,
+                builder: (_) => const SupabaseSettingsDialog(),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: AppTheme.textDarkSecondary),
             tooltip: 'دوبارہ اسکین کریں',
@@ -115,10 +132,10 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
           padding: EdgeInsets.zero,
           child: Column(
             children: [
-              // 1. Bill Header Summary Card
+              // 1. Bill Header Summary Card (with Interactive Biller Date & Grand Total)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: _buildBillHeaderCard(result),
+                child: _buildBillHeaderCard(result, controller),
               ),
 
               // 2. Tab Content
@@ -126,7 +143,7 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
                 child: TabBarView(
                   controller: _tabController,
                   children: [
-                    // Tab A: Interactive Editable Table
+                    // Tab A: Interactive Editable Table + Bill Total Breakdown + Inventory Action
                     _buildTableTab(result, controller),
 
                     // Tab B: Bilingual Stream Cards (Urdu RTL & English LTR)
@@ -144,7 +161,7 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
     );
   }
 
-  Widget _buildBillHeaderCard(OcrScanResult result) {
+  Widget _buildBillHeaderCard(OcrScanResult result, OcrScanController controller) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: AppTheme.glassCardDecoration(
@@ -189,11 +206,12 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
                   ],
                 ),
               ),
+              // Grand Bill Total Display
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    AppFormatters.formatCurrency(result.subtotal),
+                    AppFormatters.formatCurrency(result.grandTotal),
                     style: AppTheme.englishTextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
@@ -210,6 +228,99 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
                   ),
                 ],
               ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Divider(color: AppTheme.darkBorder, height: 1),
+          const SizedBox(height: 8),
+
+          // Biller Date & Inventory/Cloud Status Chips (Responsive Wrap prevents any overflow)
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              // Interactive Biller Date Chip (Requirement 2)
+              InkWell(
+                onTap: () => _pickBillerDate(result, controller),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.darkSurfaceElevated,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.calendar_today_rounded, size: 13, color: AppTheme.accentCyan),
+                      const SizedBox(width: 6),
+                      Text(
+                        'تاریخ رسید: ${result.billerDate}',
+                        style: AppTheme.englishTextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.accentCyan,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.edit_rounded, size: 11, color: AppTheme.textDarkMuted),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Inventory status pill (Requirement 4)
+              if (result.addedToInventory)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentEmerald.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.check_circle_rounded, size: 12, color: AppTheme.accentEmerald),
+                      const SizedBox(width: 4),
+                      Text(
+                        'انوینٹری میں شامل',
+                        style: AppTheme.urduTextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.accentEmerald,
+                          height: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Cloud sync status pill (Requirement 5)
+              if (result.syncedToSupabase)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF3ECF8E).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.cloud_done_rounded, size: 12, color: Color(0xFF3ECF8E)),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Supabase Synced',
+                        style: AppTheme.englishTextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF3ECF8E),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         ],
@@ -334,7 +445,231 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
               controller.addNewItem();
             },
           ),
+          const SizedBox(height: 16),
+
+          // 3. Bill Total Breakdown Card (Requirement 3)
+          _buildBillTotalBreakdownCard(result, controller),
+          const SizedBox(height: 16),
+
+          // 4. Action Buttons: Add to Inventory (Requirement 4) & Sync to Supabase (Requirement 5)
+          Row(
+            children: [
+              // Add to Inventory Button
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: result.addedToInventory
+                        ? AppTheme.accentEmerald.withValues(alpha: 0.2)
+                        : AppTheme.accentGold,
+                    foregroundColor: result.addedToInventory ? AppTheme.accentEmerald : Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(
+                        color: result.addedToInventory ? AppTheme.accentEmerald : Colors.transparent,
+                      ),
+                    ),
+                  ),
+                  icon: _isAddingToInventory
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                        )
+                      : Icon(
+                          result.addedToInventory
+                              ? Icons.check_circle_rounded
+                              : Icons.inventory_2_rounded,
+                          size: 20,
+                        ),
+                  label: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      result.addedToInventory
+                          ? 'انوینٹری میں شامل شدہ'
+                          : 'انوینٹری میں شامل کریں',
+                      style: AppTheme.urduTextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: result.addedToInventory ? AppTheme.accentEmerald : Colors.black,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+                  onPressed: (_isAddingToInventory || result.addedToInventory)
+                      ? null
+                      : () => _handleAddToInventory(result, controller),
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // Supabase Cloud Sync Button
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF3ECF8E)),
+                    foregroundColor: const Color(0xFF3ECF8E),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                  icon: _isSyncingCloud
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF3ECF8E)),
+                        )
+                      : Icon(
+                          result.syncedToSupabase
+                              ? Icons.cloud_done_rounded
+                              : Icons.cloud_upload_rounded,
+                          size: 20,
+                        ),
+                  label: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      result.syncedToSupabase ? 'Supabase Synced' : 'Supabase کلاؤڈ سنک',
+                      style: AppTheme.englishTextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF3ECF8E),
+                      ),
+                    ),
+                  ),
+                  onPressed: (_isSyncingCloud || result.syncedToSupabase)
+                      ? null
+                      : () => _handleSyncToSupabase(result, controller),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  /// Detailed Bill Total Breakdown Card (Requirement 3)
+  Widget _buildBillTotalBreakdownCard(OcrScanResult result, OcrScanController controller) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppTheme.glassCardDecoration(
+        backgroundColor: AppTheme.darkSurface,
+        borderColor: AppTheme.accentGold.withValues(alpha: 0.3),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.calculate_rounded, color: AppTheme.accentGold, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'حساب و کل تفصیل بل (Bill Total Breakdown)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.urduTextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.accentGold,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Lines Count
+          _TotalRow(
+            labelUrdu: 'کل اجناس / اشیاء:',
+            labelEn: 'Total Items',
+            value: '${result.items.length} اشیاء',
+          ),
+          const SizedBox(height: 8),
+
+          // Total Weight in kg & Maunds
+          _TotalRow(
+            labelUrdu: 'کل وزن (کلو و من):',
+            labelEn: 'Total Weight',
+            value: '${result.totalWeight} kg (${AppFormatters.formatMaunds(result.totalWeight)})',
+            valueColor: AppTheme.accentCyan,
+          ),
+          const SizedBox(height: 8),
+
+          // Subtotal
+          _TotalRow(
+            labelUrdu: 'میزان خریداری (سب ٹوٹل):',
+            labelEn: 'Subtotal',
+            value: AppFormatters.formatCurrency(result.subtotal),
+          ),
+          const SizedBox(height: 8),
+
+          // Mandi Commission / Expenses (Tap to edit)
+          InkWell(
+            onTap: () => _editCommissionDialog(result, controller),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      Text(
+                        'آڑھت و دیگر اخراجات:',
+                        style: AppTheme.urduTextStyle(fontSize: 12, color: AppTheme.textDarkSecondary),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.edit_rounded, size: 12, color: AppTheme.accentGold),
+                    ],
+                  ),
+                ),
+                Text(
+                  '₨ ${result.commission.toStringAsFixed(0)}',
+                  style: AppTheme.englishTextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.accentGold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Divider(color: AppTheme.darkBorder, height: 1),
+          const SizedBox(height: 10),
+
+          // Grand Bill Total
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'کل واجب الادا رقم (Grand Total):',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.urduTextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    AppFormatters.formatCurrency(result.grandTotal),
+                    style: AppTheme.englishTextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: AppTheme.accentGold,
+                      tabularNumbers: true,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -488,6 +823,151 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
         ],
       ),
     );
+  }
+
+  // Interactive Biller Date Picker Dialog (Requirement 2)
+  Future<void> _pickBillerDate(OcrScanResult result, OcrScanController controller) async {
+    AppHaptics.selection();
+    final initialDate = result.parsedBillerDate;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+      builder: (ctx, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppTheme.accentEmerald,
+              surface: AppTheme.darkSurface,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      final formatted = DateFormat('dd/MM/yyyy').format(picked);
+      controller.updateBillerDate(formatted);
+      AppHaptics.light();
+    }
+  }
+
+  // Edit Mandi Commission Dialog
+  void _editCommissionDialog(OcrScanResult result, OcrScanController controller) {
+    AppHaptics.selection();
+    final ctrl = TextEditingController(text: result.commission.toStringAsFixed(0));
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.darkSurface,
+        title: Text(
+          'آڑھت و دیگر اخراجات (Commission / Fee)',
+          style: AppTheme.urduTextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.number,
+          style: AppTheme.englishTextStyle(fontSize: 15),
+          decoration: const InputDecoration(
+            labelText: 'رقم (Rs)',
+            filled: true,
+            fillColor: AppTheme.darkSurfaceElevated,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('منسوخ'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentEmerald),
+            onPressed: () {
+              final val = double.tryParse(ctrl.text) ?? 0.0;
+              controller.updateCommission(val);
+              Navigator.pop(ctx);
+            },
+            child: const Text('محفوظ کریں', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Action: Add Bill to Inventory (Requirement 4)
+  Future<void> _handleAddToInventory(OcrScanResult result, OcrScanController controller) async {
+    setState(() => _isAddingToInventory = true);
+    AppHaptics.medium();
+    try {
+      await ref.read(inventoryControllerProvider.notifier).addBillToInventory(result);
+      controller.markAddedToInventory();
+
+      // Also update history vault record
+      final scans = ref.read(historyControllerProvider).allScans;
+      final target = scans.where((s) => s.billNo == result.billNo).firstOrNull;
+      if (target != null) {
+        await ref.read(historyControllerProvider.notifier).markAddedToInventory(target.id);
+      }
+
+      setState(() => _isAddingToInventory = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppTheme.accentEmerald,
+          content: Text('✓ بل کے تمام اجناس انوینٹری سٹاک میں کامیابی سے شامل ہو گئے!'),
+          duration: Duration(milliseconds: 2000),
+        ),
+      );
+    } catch (e) {
+      setState(() => _isAddingToInventory = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('انوینٹری میں شامل کرنے میں خرابی: $e')),
+      );
+    }
+  }
+
+  // Action: Sync to Supabase (Requirement 5)
+  Future<void> _handleSyncToSupabase(OcrScanResult result, OcrScanController controller) async {
+    if (!SupabaseStorageService.isConfigured) {
+      showDialog(
+        context: context,
+        builder: (_) => const SupabaseSettingsDialog(),
+      );
+      return;
+    }
+
+    setState(() => _isSyncingCloud = true);
+    AppHaptics.medium();
+    try {
+      final entry = ScanHistoryEntry.fromScanResult(
+        result,
+        fullImagePath: widget.croppedImage?.path,
+        rawText: result.items.map((i) => i.itemName).join(', '),
+      );
+      final syncRes = await SupabaseStorageService.syncBillToCloud(
+        entry,
+        imageFile: widget.croppedImage,
+      );
+
+      if (syncRes.success) {
+        controller.markSyncedToSupabase(syncRes.imageUrl);
+        ref.read(historyControllerProvider.notifier).loadHistory();
+      }
+
+      setState(() => _isSyncingCloud = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: syncRes.success ? const Color(0xFF3ECF8E) : AppTheme.errorRed,
+          content: Text(syncRes.message),
+          duration: const Duration(milliseconds: 2000),
+        ),
+      );
+    } catch (e) {
+      setState(() => _isSyncingCloud = false);
+    }
   }
 
   void _openEditItemSheet(
@@ -646,6 +1126,57 @@ class _OcrResultTableScreenState extends ConsumerState<OcrResultTableScreen>
           ),
         );
       },
+    );
+  }
+}
+
+class _TotalRow extends StatelessWidget {
+  final String labelUrdu;
+  final String labelEn;
+  final String value;
+  final Color? valueColor;
+
+  const _TotalRow({
+    required this.labelUrdu,
+    required this.labelEn,
+    required this.value,
+    this.valueColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            labelUrdu,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.urduTextStyle(
+              fontSize: 13,
+              color: AppTheme.textDarkSecondary,
+              height: 1.2,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: AppTheme.englishTextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: valueColor ?? AppTheme.textDarkPrimary,
+                tabularNumbers: true,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

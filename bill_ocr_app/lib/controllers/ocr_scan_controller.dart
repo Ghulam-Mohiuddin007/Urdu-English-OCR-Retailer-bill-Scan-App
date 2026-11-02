@@ -183,6 +183,57 @@ class OcrScanController extends Notifier<OcrScanState> {
     }
   }
 
+  /// 5b. Update Biller Date
+  void updateBillerDate(String newDate) {
+    final currentState = state;
+    if (currentState is OcrScanDataReady) {
+      final newResult = currentState.result.copyWith(
+        date: newDate,
+        billerDate: newDate,
+      );
+      state = currentState.copyWith(result: newResult);
+    }
+  }
+
+  /// 5c. Update Customer / Biller Name
+  void updateCustomerName(String newCustomer) {
+    final currentState = state;
+    if (currentState is OcrScanDataReady) {
+      final newResult = currentState.result.copyWith(customer: newCustomer);
+      state = currentState.copyWith(result: newResult);
+    }
+  }
+
+  /// 5d. Update Commission / Arhat Expenses
+  void updateCommission(double commission) {
+    final currentState = state;
+    if (currentState is OcrScanDataReady) {
+      final newResult = currentState.result.copyWith(commission: commission);
+      state = currentState.copyWith(result: newResult);
+    }
+  }
+
+  /// 5e. Mark Bill as added to inventory
+  void markAddedToInventory() {
+    final currentState = state;
+    if (currentState is OcrScanDataReady) {
+      final newResult = currentState.result.copyWith(addedToInventory: true);
+      state = currentState.copyWith(result: newResult);
+    }
+  }
+
+  /// 5f. Mark Bill as synced to Supabase
+  void markSyncedToSupabase(String? imageUrl) {
+    final currentState = state;
+    if (currentState is OcrScanDataReady) {
+      final newResult = currentState.result.copyWith(
+        syncedToSupabase: true,
+        supabaseImageUrl: imageUrl,
+      );
+      state = currentState.copyWith(result: newResult);
+    }
+  }
+
   /// 6. Delete Row
   void deleteItem(int index) {
     final currentState = state;

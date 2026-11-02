@@ -88,13 +88,18 @@ def process_bill_endpoint():
             "metadata": {
                 "bill_no": bill_no,
                 "date": date_str,
+                "biller_date": date_str,
                 "customer": customer
             },
             "items": items,
             "summary": {
                 "total_items": len(items),
                 "total_weight": total_weight,
-                "subtotal": subtotal
+                "total_weight_kg": total_weight,
+                "subtotal": subtotal,
+                "subtotal_rs": subtotal,
+                "commission_rs": 0.0,
+                "grand_total_rs": subtotal
             }
         })
 
@@ -107,6 +112,70 @@ def process_bill_endpoint():
                 os.remove(temp_path)
             except Exception:
                 pass
+
+
+@app.route('/api/inventory', methods=['GET'])
+def get_inventory():
+    """Returns current inventory items from retail_inventory.xlsx."""
+    try:
+        import pandas as pd
+        excel_path = processor.excel_path
+        if not os.path.exists(excel_path):
+            return jsonify({"success": True, "items": []})
+
+        df = pd.read_excel(excel_path, sheet_name="Stock")
+        items = []
+        for _, row in df.iterrows():
+            items.append({
+                "commodity_name": str(row.get('Item_Name', '')),
+                "stock_weight_kg": float(row.get('Weight', 0.0)),
+                "last_purchase_rate": float(row.get('Unit_Price', 0.0)),
+                "total_stock_value": float(row.get('Total_Price', 0.0)),
+                "last_bill_no": str(row.get('Bill_No', '')),
+                "last_biller_date": str(row.get('Date', '')),
+                "last_supplier": str(row.get('Customer', '')),
+            })
+        return jsonify({"success": True, "items": items})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/add_to_inventory', methods=['POST', 'OPTIONS'])
+def add_to_inventory_endpoint():
+    """Adds bill items into retail_inventory.xlsx."""
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"})
+
+    data = request.get_json(silent=True) or {}
+    bill_no = data.get('bill_no', 'N/A')
+    date_str = data.get('biller_date', 'N/A')
+    customer = data.get('customer', 'صلاح الدین ساہیوال')
+    raw_items = data.get('items', [])
+
+    if not raw_items:
+        return jsonify({"success": False, "error": "No items provided."}), 400
+
+    try:
+        import pandas as pd
+        rows = []
+        for item in raw_items:
+            rows.append({
+                "Bill_No": bill_no,
+                "Date": date_str,
+                "Customer": customer,
+                "Item_Name": item.get('item_name', item.get('commodity', 'نامعلوم')),
+                "Quantity": float(item.get('quantity', 1.0)),
+                "Weight": float(item.get('weight', 0.0)),
+                "Unit_Price": float(item.get('unit_price', 0.0)),
+                "Total_Price": float(item.get('total_price', 0.0)),
+                "Status": "Verified"
+            })
+        df = pd.DataFrame(rows)
+        processor.update_excel_inventory(df)
+        return jsonify({"success": True, "message": f"{len(rows)} items added to inventory."})
+    except Exception as e:
+        print(f"[!] Error updating inventory: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 if __name__ == '__main__':

@@ -2,40 +2,94 @@ import 'ocr_bill_item.dart';
 
 class OcrScanResult {
   final String billNo;
-  final String date;
+  final String date; // Raw date string
+  final String billerDate; // Standardized biller date
   final String customer;
   final List<OcrBillItem> items;
   final double totalWeight;
   final double subtotal;
+  final double commission; // Mandi arhat commission / fee
+  final bool addedToInventory;
+  final bool syncedToSupabase;
   final String? imagePath;
+  final String? supabaseImageUrl;
 
   const OcrScanResult({
     required this.billNo,
     required this.date,
+    String? billerDate,
     required this.customer,
     required this.items,
     required this.totalWeight,
     required this.subtotal,
+    this.commission = 0.0,
+    this.addedToInventory = false,
+    this.syncedToSupabase = false,
     this.imagePath,
-  });
+    this.supabaseImageUrl,
+  }) : billerDate = billerDate ?? date;
+
+  /// Calculated final Grand Bill Total (Subtotal + Commission)
+  double get grandTotal => subtotal + commission;
+
+  /// Attempts to parse date into a DateTime object
+  DateTime get parsedBillerDate {
+    final clean = billerDate.trim();
+    // Try formats dd/MM/yyyy or yyyy-MM-dd
+    if (clean.contains('/')) {
+      final parts = clean.split('/');
+      if (parts.length == 3) {
+        final d = int.tryParse(parts[0]) ?? 1;
+        final m = int.tryParse(parts[1]) ?? 1;
+        final y = int.tryParse(parts[2]) ?? DateTime.now().year;
+        return DateTime(y, m, d);
+      }
+    } else if (clean.contains('-')) {
+      final parts = clean.split('-');
+      if (parts.length == 3) {
+        if (parts[0].length == 4) {
+          final y = int.tryParse(parts[0]) ?? DateTime.now().year;
+          final m = int.tryParse(parts[1]) ?? 1;
+          final d = int.tryParse(parts[2]) ?? 1;
+          return DateTime(y, m, d);
+        } else {
+          final d = int.tryParse(parts[0]) ?? 1;
+          final m = int.tryParse(parts[1]) ?? 1;
+          final y = int.tryParse(parts[2]) ?? DateTime.now().year;
+          return DateTime(y, m, d);
+        }
+      }
+    }
+    return DateTime.now();
+  }
 
   OcrScanResult copyWith({
     String? billNo,
     String? date,
+    String? billerDate,
     String? customer,
     List<OcrBillItem>? items,
     double? totalWeight,
     double? subtotal,
+    double? commission,
+    bool? addedToInventory,
+    bool? syncedToSupabase,
     String? imagePath,
+    String? supabaseImageUrl,
   }) {
     return OcrScanResult(
       billNo: billNo ?? this.billNo,
       date: date ?? this.date,
+      billerDate: billerDate ?? this.billerDate,
       customer: customer ?? this.customer,
       items: items ?? this.items,
       totalWeight: totalWeight ?? this.totalWeight,
       subtotal: subtotal ?? this.subtotal,
+      commission: commission ?? this.commission,
+      addedToInventory: addedToInventory ?? this.addedToInventory,
+      syncedToSupabase: syncedToSupabase ?? this.syncedToSupabase,
       imagePath: imagePath ?? this.imagePath,
+      supabaseImageUrl: supabaseImageUrl ?? this.supabaseImageUrl,
     );
   }
 
@@ -66,18 +120,31 @@ class OcrScanResult {
     }
 
     final double totalWeight = (summary['total_weight'] as num?)?.toDouble() ??
+        (summary['total_weight_kg'] as num?)?.toDouble() ??
         items.fold<double>(0.0, (double acc, item) => acc + item.weight);
 
     final double subtotal = (summary['subtotal'] as num?)?.toDouble() ??
+        (summary['subtotal_rs'] as num?)?.toDouble() ??
         items.fold<double>(0.0, (double acc, item) => acc + item.totalPrice);
+
+    final double commission = (summary['commission'] as num?)?.toDouble() ??
+        (summary['commission_rs'] as num?)?.toDouble() ??
+        0.0;
+
+    final dateStr = metadata['date']?.toString() ??
+        metadata['biller_date']?.toString() ??
+        '19/10/2026';
+    final billerDateStr = metadata['biller_date']?.toString() ?? dateStr;
 
     return OcrScanResult(
       billNo: metadata['bill_no']?.toString() ?? '17405',
-      date: metadata['date']?.toString() ?? '19/10/2026',
+      date: dateStr,
+      billerDate: billerDateStr,
       customer: metadata['customer']?.toString() ?? 'صلاح الدین ساہیوال',
       items: items,
       totalWeight: totalWeight,
       subtotal: subtotal,
+      commission: commission,
       imagePath: imagePath,
     );
   }
@@ -87,6 +154,7 @@ class OcrScanResult {
     return OcrScanResult(
       billNo: '17405',
       date: '19/10/2026',
+      billerDate: '19/10/2026',
       customer: 'صلاح الدین ساہیوال',
       items: [
         const OcrBillItem(
@@ -128,8 +196,8 @@ class OcrScanResult {
       ],
       totalWeight: 105.0,
       subtotal: 29013.0,
+      commission: 0.0,
       imagePath: imagePath,
     );
   }
 }
-

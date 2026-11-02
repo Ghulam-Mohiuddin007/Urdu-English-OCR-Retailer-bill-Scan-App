@@ -7,7 +7,9 @@ import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/responsive.dart';
 import '../history/scan_history_screen.dart';
+import '../inventory/inventory_screen.dart';
 import '../result/ocr_result_table_screen.dart';
+import '../settings/supabase_settings_dialog.dart';
 import 'components/camera_shutter_button.dart';
 import 'components/viewfinder_reticle.dart';
 import 'scanning_animation_overlay.dart';
@@ -185,71 +187,107 @@ class OcrScannerScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                AppConstants.appName,
-                style: AppTheme.englishTextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.textDarkPrimary,
-                ),
-              ),
-              Text(
-                'رسید اسکینر (Urdu + English)',
-                style: AppTheme.urduTextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.textDarkMuted,
-                  height: 1.2,
-                ),
-              ),
-            ],
-          ),
-          const Spacer(),
-
-          // Offline Status Indicator Pill
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: AppTheme.accentEmerald.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.accentEmerald.withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 7,
-                  height: 7,
-                  decoration: const BoxDecoration(
-                    color: AppTheme.accentEmerald,
-                    shape: BoxShape.circle,
+                Text(
+                  AppConstants.appName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.englishTextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textDarkPrimary,
                   ),
                 ),
-                const SizedBox(width: 5),
                 Text(
-                  'آف لائن',
+                  'رسید اسکینر (Urdu + English)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: AppTheme.urduTextStyle(
                     fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.accentEmerald,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textDarkMuted,
                     height: 1.2,
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 6),
 
-          const SizedBox(width: 8),
+          // Supabase Cloud Status Indicator
+          InkWell(
+            onTap: () {
+              AppHaptics.light();
+              showDialog(
+                context: context,
+                builder: (_) => const SupabaseSettingsDialog(),
+              );
+            },
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFF3ECF8E).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF3ECF8E).withValues(alpha: 0.3)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.cloud_sync_rounded,
+                    size: 13,
+                    color: Color(0xFF3ECF8E),
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    'Supabase',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF3ECF8E),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 6),
+
+          // Inventory Ledger Shortcut
+          IconButton(
+            icon: Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: AppTheme.darkSurface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              ),
+              child: const Icon(
+                Icons.inventory_2_rounded,
+                size: 18,
+                color: AppTheme.accentGold,
+              ),
+            ),
+            tooltip: 'انوینٹری اسٹاک (Inventory)',
+            onPressed: () {
+              AppHaptics.light();
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const InventoryScreen()),
+              );
+            },
+          ),
 
           // Scan Vault / History Shortcut with Badge
           IconButton(
             icon: Badge(
               label: Text('$historyCount'),
               isLabelVisible: historyCount > 0,
-              backgroundColor: AppTheme.accentGold,
+              backgroundColor: AppTheme.accentEmerald,
               textColor: Colors.black,
               child: Container(
                 padding: const EdgeInsets.all(7),
@@ -260,12 +298,12 @@ class OcrScannerScreen extends ConsumerWidget {
                 ),
                 child: const Icon(
                   Icons.folder_open_rounded,
-                  size: 20,
+                  size: 18,
                   color: AppTheme.textDarkPrimary,
                 ),
               ),
             ),
-            tooltip: 'محفوظ شدہ رسیدیں (Scan Vault)',
+            tooltip: 'محفوظ شدہ رسیدیں (Bill History)',
             onPressed: () {
               AppHaptics.light();
               Navigator.of(context).push(

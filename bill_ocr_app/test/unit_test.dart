@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bill_ocr_app/core/utils/text_direction_helper.dart';
+import 'package:bill_ocr_app/models/inventory_batch_entry.dart';
+import 'package:bill_ocr_app/models/inventory_item.dart';
 import 'package:bill_ocr_app/models/ocr_bill_item.dart';
 import 'package:bill_ocr_app/models/ocr_scan_result.dart';
 import 'package:bill_ocr_app/models/scan_history_entry.dart';
@@ -40,7 +42,7 @@ void main() {
       expect(fromMapItem.totalPrice, 11400.0);
     });
 
-    test('OcrScanResult recomputes totals accurately', () {
+    test('OcrScanResult recomputes totals and handles commission & grand total', () {
       final items = [
         const OcrBillItem(
           id: '1',
@@ -63,22 +65,29 @@ void main() {
       final result = OcrScanResult(
         billNo: 'BILL-101',
         date: '2026-10-29',
+        billerDate: '2026-10-29',
         customer: 'ملک محمد اسلم',
         items: items,
         totalWeight: 0.0,
         subtotal: 0.0,
+        commission: 250.0,
       ).recomputeTotals();
 
       expect(result.totalWeight, 120.0);
       expect(result.subtotal, 14000.0);
+      expect(result.commission, 250.0);
+      expect(result.grandTotal, 14250.0);
       expect(result.items.length, 2);
+      expect(result.parsedBillerDate.year, 2026);
+      expect(result.parsedBillerDate.month, 10);
+      expect(result.parsedBillerDate.day, 29);
     });
 
-    test('OcrScanResult parses from API response JSON', () {
+    test('OcrScanResult parses from API response JSON with biller_date and grand_total', () {
       final apiJson = {
         'metadata': {
           'bill_no': 'B-789',
-          'date': '2026-10-29',
+          'biller_date': '2026-10-29',
           'customer': 'عمران زرعی سٹور',
         },
         'items': [
@@ -92,19 +101,86 @@ void main() {
         ],
         'summary': {
           'total_weight_kg': 100.0,
-          'grand_total_rs': 5500.0,
+          'subtotal_rs': 5500.0,
+          'commission_rs': 100.0,
+          'grand_total_rs': 5600.0,
         }
       };
 
       final parsed = OcrScanResult.fromApiResponse(apiJson, imagePath: '/dummy.jpg');
       expect(parsed.billNo, 'B-789');
+      expect(parsed.billerDate, '2026-10-29');
       expect(parsed.customer, 'عمران زرعی سٹور');
       expect(parsed.items.length, 1);
       expect(parsed.items.first.itemName, 'مکئی');
       expect(parsed.items.first.totalPrice, 5500.0);
       expect(parsed.totalWeight, 100.0);
       expect(parsed.subtotal, 5500.0);
+      expect(parsed.commission, 100.0);
+      expect(parsed.grandTotal, 5600.0);
       expect(parsed.imagePath, '/dummy.jpg');
+    });
+  });
+
+  group('InventoryItem Model Tests', () {
+    test('Calculates Maunds (من) correctly (40 kg = 1 Maund)', () {
+      final inv = InventoryItem(
+        id: 'inv_1',
+        commodityName: 'گندم (Wheat)',
+        englishName: 'Wheat',
+        stockWeightKg: 160.0,
+        lastPurchaseRate: 4000.0,
+        totalStockValue: 16000.0,
+        lastBillerDate: '2026-10-29',
+        lastBillNo: 'BILL-101',
+        lastSupplier: 'ملک محمد اسلم',
+        lastUpdated: DateTime(2026, 10, 29),
+        totalBillsCount: 2,
+      );
+
+      expect(inv.stockMaunds, 4.0); // 160 / 40 = 4.0 Maunds
+      expect(inv.totalStockValue, 16000.0);
+
+      // Serialization test
+      final map = inv.toMap();
+      expect(map['commodity_name'], 'گندم (Wheat)');
+      expect(map['stock_weight_kg'], 160.0);
+      expect(map['last_bill_no'], 'BILL-101');
+
+      final fromMap = InventoryItem.fromMap(map);
+      expect(fromMap.commodityName, inv.commodityName);
+      expect(fromMap.stockWeightKg, inv.stockWeightKg);
+      expect(fromMap.stockMaunds, 4.0);
+      expect(fromMap.totalBillsCount, 2);
+    });
+
+    test('InventoryBatchEntry stores separate bill date entries and calculates Maunds', () {
+      final batch = InventoryBatchEntry(
+        id: 'batch_1',
+        billNo: '17405',
+        billerDate: '19/10/2026',
+        customer: 'صلاح الدین ساہیوال',
+        commodityName: 'دال چنا گولڈن',
+        quantity: 1,
+        weightKg: 25.0,
+        unitPrice: 9900.0,
+        totalPrice: 6188.0,
+        addedAt: DateTime(2026, 10, 20),
+      );
+
+      expect(batch.billNo, '17405');
+      expect(batch.billerDate, '19/10/2026');
+      expect(batch.maunds, 25.0 / 40.0);
+      expect(batch.totalPrice, 6188.0);
+
+      final map = batch.toMap();
+      expect(map['bill_no'], '17405');
+      expect(map['biller_date'], '19/10/2026');
+
+      final fromMap = InventoryBatchEntry.fromMap(map);
+      expect(fromMap.commodityName, 'دال چنا گولڈن');
+      expect(fromMap.billerDate, '19/10/2026');
+      expect(fromMap.weightKg, 25.0);
     });
   });
 
@@ -130,6 +206,7 @@ void main() {
           id: '1',
           billNo: '17405',
           date: '2026-10-29',
+          billerDate: '2026-10-29',
           customer: 'صلاح الدین ساہیوال',
           items: const [
             OcrBillItem(
@@ -143,12 +220,14 @@ void main() {
           ],
           totalWeight: 25,
           subtotal: 6188,
+          grandTotal: 6188,
           createdAt: DateTime.now(),
         ),
         ScanHistoryEntry(
           id: '2',
           billNo: '99201',
           date: '2026-10-30',
+          billerDate: '2026-10-30',
           customer: 'ملک محمد اسلم',
           items: const [
             OcrBillItem(
@@ -162,6 +241,7 @@ void main() {
           ],
           totalWeight: 40,
           subtotal: 3200,
+          grandTotal: 3200,
           createdAt: DateTime.now(),
         ),
       ];
@@ -188,6 +268,51 @@ void main() {
         query: '17405',
       );
       expect(matchBill.length, 1);
+    });
+
+    test('Filters scans by date filter range', () {
+      final now = DateTime.now();
+      final entries = [
+        ScanHistoryEntry(
+          id: 'today_scan',
+          billNo: '1001',
+          date: '2026-11-02',
+          billerDate: '2026-11-02',
+          customer: 'کشمیر ٹریڈرز',
+          items: const [],
+          totalWeight: 40,
+          subtotal: 3000,
+          grandTotal: 3000,
+          createdAt: now,
+        ),
+        ScanHistoryEntry(
+          id: 'old_scan',
+          billNo: '1002',
+          date: '2025-01-01',
+          billerDate: '2025-01-01',
+          customer: 'قدیم گاہک',
+          items: const [],
+          totalWeight: 50,
+          subtotal: 4000,
+          grandTotal: 4000,
+          createdAt: DateTime(2025, 1, 1),
+        ),
+      ];
+
+      final todayScans = ScanHistoryService.filterScans(
+        allScans: entries,
+        query: '',
+        dateFilter: 'Today',
+      );
+      expect(todayScans.length, 1);
+      expect(todayScans.first.id, 'today_scan');
+
+      final allScans = ScanHistoryService.filterScans(
+        allScans: entries,
+        query: '',
+        dateFilter: 'All',
+      );
+      expect(allScans.length, 2);
     });
   });
 }

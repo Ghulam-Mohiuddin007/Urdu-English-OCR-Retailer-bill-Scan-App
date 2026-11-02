@@ -2,12 +2,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../controllers/history_controller.dart';
+import '../../controllers/inventory_controller.dart';
+import '../../controllers/supabase_controller.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/responsive.dart';
 import '../../models/scan_history_entry.dart';
 import '../../services/excel_export_service.dart';
 import '../result/ocr_result_table_screen.dart';
+import '../settings/supabase_settings_dialog.dart';
 
 class ScanHistoryScreen extends ConsumerStatefulWidget {
   const ScanHistoryScreen({super.key});
@@ -29,28 +32,55 @@ class _ScanHistoryScreenState extends ConsumerState<ScanHistoryScreen> {
   Widget build(BuildContext context) {
     final historyState = ref.watch(historyControllerProvider);
     final historyController = ref.read(historyControllerProvider.notifier);
+    final supaState = ref.watch(supabaseControllerProvider);
 
     // Compute summary metrics
     double grandTotalRevenue = 0;
     double grandTotalWeight = 0;
     for (final scan in historyState.allScans) {
-      grandTotalRevenue += scan.subtotal;
+      grandTotalRevenue += scan.grandTotal;
       grandTotalWeight += scan.totalWeight;
     }
 
     return Scaffold(
       backgroundColor: AppTheme.darkCanvas,
       appBar: AppBar(
-        title: Text(
-          'محفوظ شدہ رسیدیں (Scan Vault)',
-          style: AppTheme.urduTextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: AppTheme.textDarkPrimary,
-            height: 1.4,
-          ),
+        title: Column(
+          children: [
+            Text(
+              'محفوظ شدہ رسیدیں (Bill History)',
+              style: AppTheme.urduTextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textDarkPrimary,
+                height: 1.3,
+              ),
+            ),
+            Text(
+              'Archive, Cloud Sync & Inventory Ledger',
+              style: AppTheme.englishTextStyle(
+                fontSize: 11,
+                color: AppTheme.textDarkMuted,
+              ),
+            ),
+          ],
         ),
         actions: [
+          // Supabase Settings Shortcut
+          IconButton(
+            icon: Icon(
+              supaState.isConnected ? Icons.cloud_done_rounded : Icons.cloud_queue_rounded,
+              color: supaState.isConnected ? AppTheme.accentEmerald : AppTheme.textDarkMuted,
+            ),
+            tooltip: 'Supabase سیٹنگز',
+            onPressed: () {
+              AppHaptics.light();
+              showDialog(
+                context: context,
+                builder: (_) => const SupabaseSettingsDialog(),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: AppTheme.accentEmerald),
             tooltip: 'تازہ کریں (Refresh)',
@@ -85,7 +115,7 @@ class _ScanHistoryScreenState extends ConsumerState<ScanHistoryScreen> {
                   ),
                   const SizedBox(width: 8),
                   _MetricCard(
-                    title: 'کل رقم',
+                    title: 'کل رقم بلز',
                     value: AppFormatters.formatCompactCurrency(grandTotalRevenue),
                     color: AppTheme.accentEmerald,
                     icon: Icons.account_balance_wallet_rounded,
@@ -94,96 +124,148 @@ class _ScanHistoryScreenState extends ConsumerState<ScanHistoryScreen> {
               ),
             ),
 
-            // 2. Search & Filter Bar
+            // 2. Search & Cloud Sync Banner
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: TextField(
-                controller: _searchController,
-                onChanged: historyController.onSearchChanged,
-                style: AppTheme.englishTextStyle(fontSize: 14),
-                decoration: InputDecoration(
-                  hintText: 'تلاش کریں (Search customer, item, bill #)...',
-                  hintStyle: AppTheme.englishTextStyle(
-                    fontSize: 13,
-                    color: AppTheme.textDarkMuted,
-                  ),
-                  prefixIcon: const Icon(
-                    Icons.search_rounded,
-                    color: AppTheme.textDarkSecondary,
-                    size: 20,
-                  ),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear_rounded, size: 18),
-                          onPressed: () {
-                            _searchController.clear();
-                            historyController.onSearchChanged('');
-                          },
-                        )
-                      : null,
-                  filled: true,
-                  fillColor: AppTheme.darkSurface,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.08),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: historyController.onSearchChanged,
+                      style: AppTheme.englishTextStyle(fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: 'تلاش کریں (Search customer, item, bill #)...',
+                        hintStyle: AppTheme.englishTextStyle(
+                          fontSize: 13,
+                          color: AppTheme.textDarkMuted,
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.search_rounded,
+                          color: AppTheme.textDarkSecondary,
+                          size: 20,
+                        ),
+                        suffixIcon: _searchController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear_rounded, size: 18),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  historyController.onSearchChanged('');
+                                },
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: AppTheme.darkSurface,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.08),
+                  const SizedBox(width: 8),
+
+                  // Sync All Pending to Supabase Button
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF3ECF8E),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(
-                      color: AppTheme.accentEmerald,
-                      width: 1.5,
+                    icon: historyState.isSyncingCloud
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                          )
+                        : const Icon(Icons.cloud_upload_rounded, size: 16),
+                    label: Text(
+                      historyState.pendingCloudCount > 0
+                          ? '${historyState.pendingCloudCount} سنک'
+                          : 'کلاؤڈ',
+                      style: AppTheme.englishTextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
                     ),
+                    onPressed: historyState.isSyncingCloud
+                        ? null
+                        : () => historyController.syncAllPendingToCloud(),
                   ),
-                ),
+                ],
               ),
             ),
 
-            // 3. Status Filter Chips
+            // Sync Status Notification Banner if any
+            if (historyState.syncStatusMessage != null)
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppTheme.accentEmerald.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline_rounded, size: 14, color: AppTheme.accentEmerald),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        historyState.syncStatusMessage!,
+                        style: AppTheme.englishTextStyle(fontSize: 11, color: AppTheme.accentEmerald),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // 3. Date & Category Filter Chips (Requirement 1 & 2)
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: Row(
                 children: [
                   _FilterChip(
-                    label: 'سب (All)',
-                    isSelected: historyState.activeStatusFilter == 'All',
-                    onTap: () {
-                      AppHaptics.selection();
-                      historyController.onFilterChanged('All');
-                    },
+                    label: 'تمام تاریخیں (All Time)',
+                    isSelected: historyState.activeDateFilter == 'All',
+                    onTap: () => historyController.onDateFilterChanged('All'),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   _FilterChip(
-                    label: 'محفوظ شدہ (Saved)',
-                    isSelected: historyState.activeStatusFilter == 'Saved',
-                    onTap: () {
-                      AppHaptics.selection();
-                      historyController.onFilterChanged('Saved');
-                    },
+                    label: 'آج (Today)',
+                    isSelected: historyState.activeDateFilter == 'Today',
+                    onTap: () => historyController.onDateFilterChanged('Today'),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   _FilterChip(
-                    label: 'تصدیق شدہ (Verified)',
-                    isSelected: historyState.activeStatusFilter == 'Verified',
-                    onTap: () {
-                      AppHaptics.selection();
-                      historyController.onFilterChanged('Verified');
-                    },
+                    label: 'اس ہفتے (This Week)',
+                    isSelected: historyState.activeDateFilter == 'This Week',
+                    onTap: () => historyController.onDateFilterChanged('This Week'),
+                  ),
+                  const SizedBox(width: 6),
+                  _FilterChip(
+                    label: 'انوینٹری سٹاک (Inventory)',
+                    isSelected: historyState.activeStatusFilter == 'Inventory',
+                    onTap: () => historyController.onFilterChanged(
+                      historyState.activeStatusFilter == 'Inventory' ? 'All' : 'Inventory',
+                    ),
                   ),
                 ],
               ),
             ),
 
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
 
             // 4. Archive Entries List
             Expanded(
@@ -194,13 +276,13 @@ class _ScanHistoryScreenState extends ConsumerState<ScanHistoryScreen> {
                   : historyState.filteredScans.isEmpty
                       ? _buildEmptyState()
                       : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                           itemCount: historyState.filteredScans.length,
                           itemBuilder: (context, index) {
                             final entry = historyState.filteredScans[index];
                             return _ScanArchiveCard(
                               entry: entry,
-                              onTap: () => _openScanResult(entry),
+                              onTap: () => _openBillDetailsModal(entry),
                               onDelete: () => _confirmDelete(entry.id),
                             );
                           },
@@ -252,15 +334,188 @@ class _ScanHistoryScreenState extends ConsumerState<ScanHistoryScreen> {
     );
   }
 
-  void _openScanResult(ScanHistoryEntry entry) {
+  void _openBillDetailsModal(ScanHistoryEntry entry) {
     AppHaptics.light();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => OcrResultTableScreen(
-          initialResult: entry.toScanResult(),
-          croppedImage: entry.imagePath != null ? File(entry.imagePath!) : null,
-        ),
-      ),
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: const BoxDecoration(
+            color: AppTheme.darkSurface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accentEmerald.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.receipt_rounded, color: AppTheme.accentEmerald, size: 20),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'بل #${entry.billNo} • ${entry.billerDate}',
+                            style: AppTheme.englishTextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            entry.customer,
+                            style: AppTheme.urduTextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // Grand Total Highlights
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.darkSurfaceElevated,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('کل رقم (Grand Total)', style: AppTheme.urduTextStyle(fontSize: 11, color: AppTheme.textDarkMuted)),
+                          Text(
+                            AppFormatters.formatCurrency(entry.grandTotal),
+                            style: AppTheme.englishTextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppTheme.accentGold),
+                          ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text('کل وزن', style: AppTheme.urduTextStyle(fontSize: 11, color: AppTheme.textDarkMuted)),
+                          Text(
+                            '${entry.totalWeight} kg (${AppFormatters.formatMaunds(entry.totalWeight)})',
+                            style: AppTheme.englishTextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.accentCyan),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Itemized List
+                Text('تفصیل اشیاء (Itemized Lines):', style: AppTheme.urduTextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                ...entry.items.map((item) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.darkSurfaceElevated,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.itemName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.urduTextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              '${item.weight} kg @ ₨${item.unitPrice.toStringAsFixed(0)} = ₨${item.totalPrice.toStringAsFixed(0)}',
+                              maxLines: 1,
+                              style: AppTheme.englishTextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.textDarkSecondary),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+                const SizedBox(height: 16),
+
+                // Modal Actions
+                Row(
+                  children: [
+                    // Open in Full Review / Editor
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.accentEmerald,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: const Icon(Icons.edit_note_rounded, size: 18),
+                        label: Text(
+                          'ترمیم و مکمل جائزہ',
+                          style: AppTheme.urduTextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black, height: 1.2),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => OcrResultTableScreen(
+                                initialResult: entry.toScanResult(),
+                                croppedImage: entry.imagePath != null ? File(entry.imagePath!) : null,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    // Add to Inventory action
+                    if (!entry.addedToInventory)
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.accentGold,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: const Icon(Icons.inventory_2_rounded, size: 16),
+                        label: const Text('انوینٹری'),
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          await ref.read(inventoryControllerProvider.notifier).addBillToInventory(entry.toScanResult());
+                          await ref.read(historyControllerProvider.notifier).markAddedToInventory(entry.id);
+                        },
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -347,15 +602,18 @@ class _MetricCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTheme.englishTextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textDarkPrimary,
-                tabularNumbers: true,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: AppTheme.englishTextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textDarkPrimary,
+                  tabularNumbers: true,
+                ),
               ),
             ),
           ],
@@ -382,7 +640,7 @@ class _FilterChip extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: isSelected
               ? AppTheme.accentEmerald
@@ -424,7 +682,7 @@ class _ScanArchiveCard extends StatelessWidget {
     final hasThumb = thumbFile != null && thumbFile.existsSync();
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 10),
       decoration: AppTheme.glassCardDecoration(
         backgroundColor: AppTheme.darkSurface.withValues(alpha: 0.95),
       ),
@@ -439,8 +697,8 @@ class _ScanArchiveCard extends StatelessWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: SizedBox(
-                  width: 64,
-                  height: 64,
+                  width: 60,
+                  height: 60,
                   child: hasThumb
                       ? Image.file(
                           thumbFile,
@@ -450,7 +708,7 @@ class _ScanArchiveCard extends StatelessWidget {
                       : _thumbPlaceholder(),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
 
               // 2. Metadata Information
               Expanded(
@@ -469,10 +727,10 @@ class _ScanArchiveCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          entry.date,
+                          'تاریخ: ${entry.billerDate}',
                           style: AppTheme.englishTextStyle(
                             fontSize: 11,
-                            color: AppTheme.textDarkMuted,
+                            color: AppTheme.accentCyan,
                           ),
                         ),
                       ],
@@ -486,27 +744,41 @@ class _ScanArchiveCard extends StatelessWidget {
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                         color: AppTheme.textDarkPrimary,
-                        height: 1.4,
+                        height: 1.3,
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      '${entry.items.length} اشیاء • ${entry.totalWeight} کلو (${AppFormatters.formatMaunds(entry.totalWeight)})',
-                      style: AppTheme.englishTextStyle(
-                        fontSize: 11,
-                        color: AppTheme.textDarkSecondary,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          '${entry.items.length} اشیاء • ${entry.totalWeight} کلو (${AppFormatters.formatMaunds(entry.totalWeight)})',
+                          style: AppTheme.englishTextStyle(
+                            fontSize: 11,
+                            color: AppTheme.textDarkSecondary,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (entry.addedToInventory)
+                          const Padding(
+                            padding: EdgeInsets.only(right: 4),
+                            child: Icon(Icons.inventory_2_rounded, size: 13, color: AppTheme.accentGold),
+                          ),
+                        if (entry.syncedToSupabase)
+                          const Icon(Icons.cloud_done_rounded, size: 13, color: Color(0xFF3ECF8E)),
+                      ],
                     ),
                   ],
                 ),
               ),
+
+              const SizedBox(width: 10),
 
               // 3. Total & Action Menu
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    AppFormatters.formatCurrency(entry.subtotal),
+                    AppFormatters.formatCurrency(entry.grandTotal),
                     style: AppTheme.englishTextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
@@ -534,7 +806,7 @@ class _ScanArchiveCard extends StatelessWidget {
                         },
                         visualDensity: VisualDensity.compact,
                         constraints: const BoxConstraints(),
-                        padding: const EdgeInsets.all(6),
+                        padding: const EdgeInsets.all(4),
                       ),
                       const SizedBox(width: 4),
                       IconButton(
@@ -547,7 +819,7 @@ class _ScanArchiveCard extends StatelessWidget {
                         onPressed: onDelete,
                         visualDensity: VisualDensity.compact,
                         constraints: const BoxConstraints(),
-                        padding: const EdgeInsets.all(6),
+                        padding: const EdgeInsets.all(4),
                       ),
                     ],
                   ),

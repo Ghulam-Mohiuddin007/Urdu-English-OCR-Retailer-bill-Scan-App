@@ -369,6 +369,14 @@ class RetailBillProcessor:
         if img is None:
             raise FileNotFoundError(f"Cannot load image: {image_path}")
 
+        # Resolution Normalization: Scale to 720px width for scale-invariant clustering & 3-5x faster OCR
+        h_orig, w_orig = img.shape[:2]
+        if w_orig != 720:
+            scale = 720.0 / w_orig
+            target_h = int(h_orig * scale)
+            interp = cv2.INTER_AREA if w_orig > 720 else cv2.INTER_CUBIC
+            img = cv2.resize(img, (720, target_h), interpolation=interp)
+
         if interactive_crop:
             enhanced = self.interactive_free_crop(image_path)
         else:
